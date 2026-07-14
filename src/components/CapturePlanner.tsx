@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, ClipboardList, MonitorCog, Play, RefreshCw, Route, WandSparkles } from "lucide-react";
 import type {
   ApiState,
-  CaptureAuditSummary,
   ChromeStatus,
   ExtensionRunStatus,
-  JobSummary,
   Platform,
-  PlatformAudit,
   PlatformPreflight
 } from "@/components/capture/capture-types";
+import { apiFetch } from "@/components/capture/apiFetch";
+import { useCaptureAudit } from "@/components/capture/useCaptureAudit";
+import { useCaptureJobs } from "@/components/capture/useCaptureJobs";
 import { extensionNeedsUpdate, useExtensionBridge } from "@/components/capture/useExtensionBridge";
 import { withApiToken } from "@/lib/client-api";
 
@@ -30,13 +30,6 @@ const chromeExtensionsUrl = "chrome://extensions/";
 const autoPilotLockKey = "aihr:capture:auto-pilot-lock";
 const tabInstanceKey = "aihr:capture:tab-instance";
 const autoPilotLockTtlMs = 120000;
-
-function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
-  return fetch(input, {
-    ...init,
-    headers: withApiToken(init?.headers)
-  });
-}
 
 function getTabInstanceId() {
   if (typeof window === "undefined") return "server";
@@ -59,17 +52,8 @@ export function CapturePlanner() {
   const [maxItems, setMaxItems] = useState(100);
   const [maxScrolls, setMaxScrolls] = useState(20);
   const [agentInstruction, setAgentInstruction] = useState(defaultAgentInstruction);
-  const [jobInstruction, setJobInstruction] = useState(defaultJobInstruction);
-  const [jobs, setJobs] = useState<JobSummary[]>([]);
-  const [selectedJobId, setSelectedJobId] = useState("");
-  const [batchSize, setBatchSize] = useState(5);
-  const [maxBatches, setMaxBatches] = useState(10);
-  const [batchDelaySeconds, setBatchDelaySeconds] = useState(12);
-  const [maxAttempts, setMaxAttempts] = useState(3);
   const [chromeStatus, setChromeStatus] = useState<ChromeStatus | null>(null);
   const [preflight, setPreflight] = useState<PlatformPreflight[]>([]);
-  const [audit, setAudit] = useState<PlatformAudit[]>([]);
-  const [auditSummary, setAuditSummary] = useState<CaptureAuditSummary | null>(null);
   const [extensionInstruction, setExtensionInstruction] = useState(defaultExtensionInstruction);
   const [extensionPlan, setExtensionPlan] = useState("");
   const [assistantMessage, setAssistantMessage] = useState(
@@ -77,23 +61,54 @@ export function CapturePlanner() {
   );
   const [assistantSteps, setAssistantSteps] = useState<string[]>([]);
   const [autoPilotRetryTick, setAutoPilotRetryTick] = useState(0);
+  const {
+    audit,
+    auditSummary,
+    loadCaptureAudit,
+    refreshAudit,
+    weakEvidencePlatforms,
+    missingOrWeakPlatforms
+  } = useCaptureAudit({ setResult });
+  const {
+    jobInstruction,
+    setJobInstruction,
+    jobs,
+    selectedJobId,
+    setSelectedJobId,
+    batchSize,
+    setBatchSize,
+    maxBatches,
+    setMaxBatches,
+    batchDelaySeconds,
+    setBatchDelaySeconds,
+    maxAttempts,
+    setMaxAttempts,
+    refreshJobs,
+    createJob,
+    runJobBatch,
+    runJobUntilIdle
+  } = useCaptureJobs({
+    defaultJobInstruction,
+    setState,
+    setResult
+  });
 
   const handleExtensionCompleted = useCallback(() => {
     autoPilotStartedRef.current = false;
     setAssistantMessage("后台采集已完成，正在自动更新审计结果。");
     void loadCaptureAudit();
-  }, []);
+  }, [loadCaptureAudit]);
 
   const handleExtensionFailed = useCallback(() => {
     autoPilotStartedRef.current = false;
     setAssistantMessage("后台采集失败，已自动读取状态；可以展开高级调试看错误详情。");
     void loadCaptureAudit();
-  }, []);
+  }, [loadCaptureAudit]);
 
   const handleExtensionStopped = useCallback(() => {
     setAssistantMessage("后台采集已停止。再次点击一键向导会自动继续可恢复队列或重新规划。");
     void loadCaptureAudit();
-  }, []);
+  }, [loadCaptureAudit]);
 
   const handleExtensionReloadRequested = useCallback(() => {
     setAssistantMessage("正在接入新版后台采集能力，完成后会自动续跑。");
@@ -115,14 +130,22 @@ export function CapturePlanner() {
     onReloadRequested: handleExtensionReloadRequested
   });
 
-  useEffect(() => {
-    apiFetch("/api/capture/audit")
-      .then((response) => response.json())
-      .then((data) => {
-        setAudit((data.audit?.platforms ?? []) as PlatformAudit[]);
-        setAuditSummary(data.audit ? (data.audit as CaptureAuditSummary) : null);
-      })
-      .catch(() => undefined);
+  const tryAcquireAutoPilotLock = useCallback(() => {
+    const now = Date.now();
+    try {
+      const rawLock = window.localStorage.getItem(autoPilotLockKey);
+      const lock = rawLock ? (JSON.parse(rawLock) as { owner?: string; expiresAt?: number }) : null;
+      if (lock?.expiresAt && lock.expiresAt > now && lock.owner !== tabInstanceIdRef.current) {
+        return false;
+      }
+      window.localStorage.setItem(
+        autoPilotLockKey,
+        JSON.stringify({ owner: tabInstanceIdRef.current, expiresAt: now + autoPilotLockTtlMs })
+      );
+      return true;
+    } catch {
+      return true;
+    }
   }, []);
 
   useEffect(() => {
@@ -153,26 +176,9 @@ export function CapturePlanner() {
     extensionMeta.version,
     extensionReady,
     extensionRun?.status,
-    state
+    state,
+    tryAcquireAutoPilotLock
   ]);
-
-  function tryAcquireAutoPilotLock() {
-    const now = Date.now();
-    try {
-      const rawLock = window.localStorage.getItem(autoPilotLockKey);
-      const lock = rawLock ? (JSON.parse(rawLock) as { owner?: string; expiresAt?: number }) : null;
-      if (lock?.expiresAt && lock.expiresAt > now && lock.owner !== tabInstanceIdRef.current) {
-        return false;
-      }
-      window.localStorage.setItem(
-        autoPilotLockKey,
-        JSON.stringify({ owner: tabInstanceIdRef.current, expiresAt: now + autoPilotLockTtlMs })
-      );
-      return true;
-    } catch {
-      return true;
-    }
-  }
 
   async function checkChrome() {
     setState("chrome");
@@ -271,39 +277,6 @@ export function CapturePlanner() {
     } finally {
       setState("idle");
     }
-  }
-
-  async function refreshJobs() {
-    const response = await apiFetch("/api/capture/jobs");
-    const data = await response.json();
-    const nextJobs = (data.jobs ?? []) as JobSummary[];
-    setJobs(nextJobs);
-    if (!selectedJobId && nextJobs[0]) {
-      setSelectedJobId(nextJobs[0].id);
-    }
-  }
-
-  async function refreshAudit() {
-    setResult("");
-    try {
-      const response = await apiFetch("/api/capture/audit");
-      const data = await response.json();
-      setAudit((data.audit?.platforms ?? []) as PlatformAudit[]);
-      setAuditSummary(data.audit ? (data.audit as CaptureAuditSummary) : null);
-      setResult(JSON.stringify(data, null, 2));
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "刷新采集审计失败");
-    }
-  }
-
-  async function loadCaptureAudit() {
-    const response = await apiFetch("/api/capture/audit");
-    const data = await response.json();
-    const platforms = (data.audit?.platforms ?? []) as PlatformAudit[];
-    const summary = data.audit ? (data.audit as CaptureAuditSummary) : null;
-    setAudit(platforms);
-    setAuditSummary(summary);
-    return { data, platforms, summary };
   }
 
   async function createPlan() {
@@ -440,29 +413,6 @@ export function CapturePlanner() {
     } finally {
       setState("idle");
     }
-  }
-
-  function weakEvidencePlatforms(platforms: PlatformAudit[]) {
-    return platforms
-      .filter(
-        (item) =>
-          item.importedConversations > 0 &&
-          (item.latestDiscovery?.evidenceStrong !== true || (item.latestDiscovery?.failuresCount ?? 0) > 0)
-      )
-      .map((item) => item.platform);
-  }
-
-  function missingOrWeakPlatforms(platforms: PlatformAudit[]) {
-    const selected = platforms
-      .filter(
-        (item) =>
-          item.importedConversations === 0 ||
-          item.latestDiscovery?.evidenceStrong !== true ||
-          (item.latestDiscovery?.failuresCount ?? 0) > 0
-      )
-      .map((item) => item.platform);
-
-    return selected.length > 0 ? selected : (["chatgpt", "gemini", "deepseek", "qwen"] as Platform[]);
   }
 
   async function createPlanFromInstruction(instructionText: string) {
@@ -668,80 +618,6 @@ export function CapturePlanner() {
     }
   }
 
-  async function createJob() {
-    setState("planning");
-    setResult("");
-    try {
-      const response = await apiFetch("/api/capture/jobs", {
-        method: "POST",
-        headers: withApiToken({ "content-type": "application/json" }),
-        body: JSON.stringify({ instruction: jobInstruction })
-      });
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
-      if (data.job?.id) {
-        setSelectedJobId(data.job.id);
-      }
-      await refreshJobs();
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "创建采集任务失败");
-    } finally {
-      setState("idle");
-    }
-  }
-
-  async function runJobBatch() {
-    if (!selectedJobId) {
-      return;
-    }
-
-    setState("capturing");
-    setResult("");
-    try {
-      const response = await apiFetch(`/api/capture/jobs/${selectedJobId}`, {
-        method: "POST",
-        headers: withApiToken({ "content-type": "application/json" }),
-        body: JSON.stringify({ batchSize, maxAttempts })
-      });
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
-      await refreshJobs();
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "执行任务批次失败");
-    } finally {
-      setState("idle");
-    }
-  }
-
-  async function runJobUntilIdle() {
-    if (!selectedJobId) {
-      return;
-    }
-
-    setState("runningAll");
-    setResult("");
-    try {
-      const response = await apiFetch(`/api/capture/jobs/${selectedJobId}`, {
-        method: "POST",
-        headers: withApiToken({ "content-type": "application/json" }),
-        body: JSON.stringify({
-          batchSize,
-          maxAttempts,
-          maxBatches,
-          batchDelayMs: batchDelaySeconds * 1000,
-          runUntilIdle: true
-        })
-      });
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
-      await refreshJobs();
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : "连续执行任务失败");
-    } finally {
-      setState("idle");
-    }
-  }
-
   function guidedButtonLabel() {
     if (state === "extension") return "处理中";
     if (!extensionReady) return "检查并连接扩展";
@@ -796,9 +672,11 @@ export function CapturePlanner() {
       .join(" · ");
   }
 
-  runGuidedExtensionFlowRef.current = () => {
-    void runGuidedExtensionFlow();
-  };
+  useEffect(() => {
+    runGuidedExtensionFlowRef.current = () => {
+      void runGuidedExtensionFlow();
+    };
+  });
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
