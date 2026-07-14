@@ -8,6 +8,8 @@ export interface SearchFilters {
   query: string;
   platform?: string;
   tag?: string;
+  dateFrom?: string;
+  dateTo?: string;
   sort: "newest" | "oldest";
 }
 
@@ -84,6 +86,16 @@ function buildWhere(filters: SearchFilters, useFts: boolean) {
       )
     `);
     params.tag = filters.tag;
+  }
+
+  if (filters.dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(filters.dateFrom)) {
+    where.push("date(c.imported_at, 'localtime') >= date(@dateFrom)");
+    params.dateFrom = filters.dateFrom;
+  }
+
+  if (filters.dateTo && /^\d{4}-\d{2}-\d{2}$/.test(filters.dateTo)) {
+    where.push("date(c.imported_at, 'localtime') <= date(@dateTo)");
+    params.dateTo = filters.dateTo;
   }
 
   return {

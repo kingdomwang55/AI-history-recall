@@ -56,6 +56,8 @@ export interface ImportResult {
   adapter: string | null;
   importedConversations: number;
   importedMessages: number;
+  updatedConversations?: number;
+  skippedDuplicates?: number;
   conversationIds: string[];
   errors: string[];
 }

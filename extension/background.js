@@ -1,20 +1,33 @@
-try {
-  importScripts("config.js");
-} catch {
-  // Optional local-only config. See extension/config.example.js.
-}
-
 const LOCAL_IMPORT_URL = "http://localhost:3000/api/extension/capture-page";
 const LOCAL_DISCOVERY_URL = "http://localhost:3000/api/extension/discovery-run";
 const LOCAL_FILTER_TARGETS_URL = "http://localhost:3000/api/extension/filter-targets";
 const LOCAL_AUDIT_URL = "http://localhost:3000/api/capture/audit";
-const EXTENSION_VERSION = "0.1.38";
-const EXTENSION_BUILD_ID = "no-debugger-input-20260711";
-const LOCAL_API_TOKEN = (globalThis.AIHR_LOCAL_API_TOKEN || "").trim();
+const LOCAL_SYNC_STATE_URL = "http://localhost:3000/api/extension/sync-state";
+const EXTENSION_VERSION = "0.1.42";
+const EXTENSION_BUILD_ID = "deepseek-pinned-groups-20260715";
+async function loadLocalApiToken() {
+  const stored = await chrome.storage.local.get("aihrLocalApiToken");
+  if (typeof stored.aihrLocalApiToken === "string") return stored.aihrLocalApiToken.trim();
 
-function localApiHeaders(headers = {}) {
-  return LOCAL_API_TOKEN
-    ? { ...headers, "X-AIHR-API-Token": LOCAL_API_TOKEN }
+  try {
+    const response = await fetch(chrome.runtime.getURL("config.js"));
+    if (!response.ok) return "";
+    const source = await response.text();
+    const match = source.match(/AIHR_LOCAL_API_TOKEN\s*=\s*("(?:[^"\\]|\\.)*")/);
+    const token = match ? JSON.parse(match[1]).trim() : "";
+    if (token) await chrome.storage.local.set({ aihrLocalApiToken: token });
+    return token;
+  } catch {
+    return "";
+  }
+}
+
+const localApiTokenReady = loadLocalApiToken();
+
+async function localApiHeaders(headers = {}) {
+  const token = await localApiTokenReady;
+  return token
+    ? { ...headers, "X-AIHR-API-Token": token }
     : headers;
 }
 const DEFAULT_DELAY_MS = 5200;
@@ -25,7 +38,10 @@ const QWEN_DISCOVERY_MESSAGE_TIMEOUT_MS = 900000;
 const QWEN_STEP_TIMEOUT_MS = 18000;
 const CAPTURE_ALARM = "aihr_process_capture_queue";
 const AUTO_PILOT_ALARM = "aihr_background_autopilot";
-const AUTO_PILOT_RETRY_MS = 60000;
+const SNAPSHOT_ALARM_PREFIX = "aihr_snapshot_";
+const AUTO_PILOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const AUTO_PILOT_RETRY_MS = 15 * 60 * 1000;
+const SNAPSHOT_COOLDOWN_MS = 10 * 60 * 1000;
 const PLATFORM_HISTORY_URLS = {
   chatgpt: "https://chatgpt.com/",
   gemini: "https://gemini.google.com/app",
@@ -41,6 +57,62 @@ function sleep(ms) {
 
 function randomDelay(baseMs = DEFAULT_DELAY_MS, jitterMs = DEFAULT_JITTER_MS) {
   return baseMs + Math.floor(Math.random() * jitterMs);
+}
+
+function createIncrementalTracker(options = {}) {
+  const incremental = options.mode === "incremental";
+  const knownUrls = new Set(Array.isArray(options.knownUrls) ? options.knownUrls : []);
+  const maxItems = Math.min(Math.max(Math.trunc(Number(options.maxItems) || 50), 1), 200);
+  const stopAfterKnown = Math.min(Math.max(Math.trunc(Number(options.stopAfterKnown) || 10), 1), 50);
+  let scannedCount = 0;
+  let knownCount = 0;
+  let consecutiveKnown = 0;
+  let stopped = false;
+  let stopReason = null;
+
+  return {
+    consider(target) {
+      if (stopped || !target?.url) return { include: false, stop: stopped };
+
+      if (incremental && knownUrls.has(target.url) && target.ignoreKnownStreak === true) {
+        return { include: false, stop: false };
+      }
+
+      scannedCount += 1;
+
+      if (incremental && knownUrls.has(target.url)) {
+        knownCount += 1;
+        consecutiveKnown += 1;
+        if (consecutiveKnown >= stopAfterKnown) {
+          stopped = true;
+          stopReason = "known_streak";
+        }
+        return { include: false, stop: stopped };
+      }
+
+      consecutiveKnown = 0;
+      if (scannedCount >= maxItems) {
+        stopped = true;
+        stopReason = "max_items";
+      }
+      return { include: true, stop: stopped };
+    },
+    stats() {
+      return { scannedCount, knownCount, consecutiveKnown, stopped, stopReason };
+    }
+  };
+}
+
+function nextSnapshotAt(options = {}) {
+  const now = Number(options.now) || Date.now();
+  const lastCapturedAt = Math.max(Number(options.lastCapturedAt) || 0, 0);
+  const cooldownMs = Math.max(Number(options.cooldownMs) || 0, 0);
+  const minDelayMs = Math.max(Number(options.minDelayMs) || 0, 0);
+  const jitterMs = Math.max(Number(options.jitterMs) || 0, 0);
+  const random = typeof options.random === "function" ? options.random : Math.random;
+  const quietDelayAt = now + minDelayMs + Math.floor(random() * jitterMs);
+  const cooldownAt = lastCapturedAt > 0 ? lastCapturedAt + cooldownMs : 0;
+  return Math.max(quietDelayAt, cooldownAt);
 }
 
 function sendTabMessage(tabId, message, timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS) {
@@ -93,7 +165,7 @@ function updateTab(tabId, updateProperties) {
 }
 
 function injectContentScript(tabId) {
-  return chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+  return chrome.scripting.executeScript({ target: { tabId }, files: ["incremental-sync.js", "content.js"] });
 }
 
 async function ensureContentScriptsInOpenTabs() {
@@ -254,7 +326,7 @@ function scheduleQueueStep(delayMs) {
 async function postConversation(payload) {
   const response = await fetch(LOCAL_IMPORT_URL, {
     method: "POST",
-    headers: localApiHeaders({ "content-type": "application/json" }),
+    headers: await localApiHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(payload)
   });
   const data = await response.json().catch(() => ({}));
@@ -268,7 +340,7 @@ async function postDiscovery(discovery) {
   if (!discovery?.platform) return;
   await fetch(LOCAL_DISCOVERY_URL, {
     method: "POST",
-    headers: localApiHeaders({ "content-type": "application/json" }),
+    headers: await localApiHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({
       platform: discovery.platform,
       targetsFound: discovery.targets?.length || 0,
@@ -280,31 +352,54 @@ async function postDiscovery(discovery) {
       maxScrollsReached: discovery.stopReason === "max_scrolls",
       exhaustive: discovery.exhaustive === true,
       extensionVersion: EXTENSION_VERSION,
-      extensionBuildId: EXTENSION_BUILD_ID
+      extensionBuildId: EXTENSION_BUILD_ID,
+      lastSeenUrl: discovery.targets?.[0]?.url || null,
+      mode: activeRun?.mode === "incremental" ? "incremental" : "full"
     })
   }).catch(() => undefined);
 }
 
-async function filterKnownTargets(targets) {
+async function filterKnownTargets(targets, options = {}) {
   if (!targets.length) return targets;
   const response = await fetch(LOCAL_FILTER_TARGETS_URL, {
     method: "POST",
-    headers: localApiHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify({ targets })
+    headers: await localApiHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({
+      targets,
+      mode: options.mode,
+      maxItems: options.maxItems,
+      stopAfterKnown: options.stopAfterKnown
+    })
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !Array.isArray(data.targets)) return targets;
   return data.targets;
 }
 
-async function getKnownTargetsByTitle(platform) {
+async function getKnownTargetInfo(platform) {
   const response = await fetch(`${LOCAL_FILTER_TARGETS_URL}?platform=${encodeURIComponent(platform)}`, {
-    headers: localApiHeaders()
+    headers: await localApiHeaders()
   });
   const data = await response.json().catch(() => ({}));
-  return response.ok && typeof data.knownTargetsByTitle === "object" && data.knownTargetsByTitle !== null
-    ? data.knownTargetsByTitle
-    : {};
+  return {
+    knownTargetsByTitle:
+      response.ok && typeof data.knownTargetsByTitle === "object" && data.knownTargetsByTitle !== null
+        ? data.knownTargetsByTitle
+        : {},
+    knownUrls: response.ok && Array.isArray(data.knownUrls) ? data.knownUrls : []
+  };
+}
+
+async function postSyncState(platform, event, details = {}) {
+  const response = await fetch(LOCAL_SYNC_STATE_URL, {
+    method: "POST",
+    headers: await localApiHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ platform, event, ...details })
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to update local sync state.");
+  }
 }
 
 async function captureTarget(target) {
@@ -364,10 +459,13 @@ function countTargetsByPlatform(targets) {
 
 function buildDiscoverOptions(options) {
   return {
-    maxItems: options?.maxItems || 1000,
+    mode: options?.mode === "incremental" ? "incremental" : "full",
+    maxItems: options?.maxItems || (options?.mode === "incremental" ? 50 : 1000),
     maxScrolls: options?.maxScrolls || 200,
     delayMs: options?.delayMs || 3200,
-    stopAfterNoNewScrolls: options?.stopAfterNoNewScrolls || 8
+    stopAfterNoNewScrolls: options?.stopAfterNoNewScrolls || 8,
+    stopAfterKnown: options?.stopAfterKnown || 10,
+    knownUrls: Array.isArray(options?.knownUrls) ? options.knownUrls : []
   };
 }
 
@@ -389,6 +487,7 @@ async function saveDiscoveryProgress(progress) {
 
 async function discoverQwenPlatform(tab, options) {
   const discoverOptions = buildDiscoverOptions(options);
+  const tracker = createIncrementalTracker(discoverOptions);
   const maxItems = Math.min(Math.max(Number(discoverOptions.maxItems) || 1000, 1), 3000);
   const maxScrolls = Math.min(Math.max(Number(discoverOptions.maxScrolls) || 200, 1), 600);
   const delayMs = Math.min(Math.max(Number(discoverOptions.delayMs) || 3200, 1200), 30000);
@@ -461,11 +560,14 @@ async function discoverQwenPlatform(tab, options) {
         if (seenUrls.has(target.url)) continue;
 
         seenUrls.add(target.url);
-        targets.push({
+        const normalizedTarget = {
           platform: "qwen",
           url: target.url,
           title: target.title || row.title
-        });
+        };
+        const decision = tracker.consider(normalizedTarget);
+        if (decision.include) targets.push(normalizedTarget);
+        if (decision.stop) stopReason = tracker.stats().stopReason || "known_streak";
         await saveDiscoveryProgress({
           platform: "qwen",
           phase: "row_target_found",
@@ -497,9 +599,10 @@ async function discoverQwenPlatform(tab, options) {
       }
 
       await sleep(randomDelay(delayMs, Math.floor(delayMs * 0.6)));
+      if (tracker.stats().stopped) break;
     }
 
-    if (stopReason === "stopped") break;
+    if (stopReason === "stopped" || tracker.stats().stopped) break;
 
     scrollsPerformed = scrollIndex + 1;
     noNewScrolls = targets.length === beforeCount ? noNewScrolls + 1 : 0;
@@ -572,12 +675,14 @@ async function discoverQwenPlatform(tab, options) {
     scannedTitles: [...new Set(scannedTitles)].slice(0, maxItems + 200),
     stopReason,
     scrollsPerformed,
-    exhaustive: stopReason === "no_new_targets"
+    exhaustive: discoverOptions.mode !== "incremental" && stopReason === "no_new_targets",
+    incremental: tracker.stats()
   };
 }
 
 async function discoverClickableHistoryPlatform(platform, tab, options) {
   const discoverOptions = buildDiscoverOptions(options);
+  const tracker = createIncrementalTracker(discoverOptions);
   const maxItems = Math.min(Math.max(Number(discoverOptions.maxItems) || 1000, 1), 3000);
   const maxScrolls = Math.min(Math.max(Number(discoverOptions.maxScrolls) || 200, 1), 600);
   const delayMs = Math.min(Math.max(Number(discoverOptions.delayMs) || 3200, 1200), 30000);
@@ -655,11 +760,14 @@ async function discoverClickableHistoryPlatform(platform, tab, options) {
         if (seenUrls.has(target.url)) continue;
 
         seenUrls.add(target.url);
-        targets.push({
+        const normalizedTarget = {
           platform,
           url: target.url,
           title: target.title || row.title
-        });
+        };
+        const decision = tracker.consider(normalizedTarget);
+        if (decision.include) targets.push(normalizedTarget);
+        if (decision.stop) stopReason = tracker.stats().stopReason || "known_streak";
       } catch (error) {
         failures.push({
           platform,
@@ -669,9 +777,10 @@ async function discoverClickableHistoryPlatform(platform, tab, options) {
       }
 
       await sleep(randomDelay(delayMs, Math.floor(delayMs * 0.6)));
+      if (tracker.stats().stopped) break;
     }
 
-    if (stopReason === "stopped") break;
+    if (stopReason === "stopped" || tracker.stats().stopped) break;
 
     scrollsPerformed = scrollIndex + 1;
     noNewScrolls = targets.length === beforeCount ? noNewScrolls + 1 : 0;
@@ -716,7 +825,8 @@ async function discoverClickableHistoryPlatform(platform, tab, options) {
     scannedTitles: [...new Set(scannedTitles)].slice(0, maxItems + 200),
     stopReason,
     scrollsPerformed,
-    exhaustive: stopReason === "no_new_targets"
+    exhaustive: discoverOptions.mode !== "incremental" && stopReason === "no_new_targets",
+    incremental: tracker.stats()
   };
 }
 
@@ -747,6 +857,34 @@ async function initializeQueue(targets, options) {
     }
   });
   scheduleQueueStep(1000);
+}
+
+async function finalizeIncrementalRun(run) {
+  if (run?.mode !== "incremental" || run.syncFinalized) return;
+  const platformResults = run.platformResults || {};
+  const failures = Array.isArray(run.failures) ? run.failures : [];
+
+  for (const platform of run.platforms || []) {
+    const platformFailure = failures.find((failure) => failure.platform === platform);
+    if (platformFailure) {
+      await postSyncState(platform, "failed", {
+        error: platformFailure.error || "增量同步失败",
+        backoffUntil: new Date(Date.now() + AUTO_PILOT_RETRY_MS).toISOString()
+      }).catch(() => undefined);
+      continue;
+    }
+
+    const result = platformResults[platform] || {};
+    const discovery = (run.discoveries || []).find((item) => item.platform === platform);
+    await postSyncState(platform, "succeeded", {
+      newConversations: result.newConversations || 0,
+      newMessages: result.newMessages || 0,
+      lastSeenUrl: discovery?.targets?.[0]?.url || null
+    }).catch(() => undefined);
+  }
+
+  await saveStatus({ syncFinalized: true });
+  await scheduleBackgroundAutoPilot(AUTO_PILOT_INTERVAL_MS);
 }
 
 async function hasRunningTask() {
@@ -827,6 +965,7 @@ async function processQueueStep() {
   const target = queue[nextIndex];
 
   if (!target) {
+    await finalizeIncrementalRun(run);
     await saveStatus({ status: "completed", phase: "completed", processing: false, currentTarget: null });
     return;
   }
@@ -845,6 +984,7 @@ async function processQueueStep() {
 
   try {
     const data = await captureTarget(target);
+    const platformResult = activeRun.platformResults?.[target.platform] || {};
     await saveStatus({
       processed: (activeRun.processed || 0) + 1,
       nextIndex: nextIndex + 1,
@@ -852,6 +992,14 @@ async function processQueueStep() {
         (activeRun.importedConversations || 0) + (data.imported?.importedConversations || 0),
       importedMessages: (activeRun.importedMessages || 0) + (data.imported?.importedMessages || 0),
       skippedDuplicates: (activeRun.skippedDuplicates || 0) + (data.imported?.skippedDuplicates || 0),
+      platformResults: {
+        ...(activeRun.platformResults || {}),
+        [target.platform]: {
+          newConversations:
+            (platformResult.newConversations || 0) + (data.imported?.importedConversations || 0),
+          newMessages: (platformResult.newMessages || 0) + (data.imported?.importedMessages || 0)
+        }
+      },
       processing: false,
       processingStartedAt: null,
       currentTarget: null
@@ -980,18 +1128,25 @@ async function discoverPlatform(platform, openerTabId, options) {
     });
     await waitForTabComplete(tab.id);
     await sleep(randomDelay(3000, 2400));
+    const knownTargetInfo = await getKnownTargetInfo(platform).catch(() => ({
+      knownTargetsByTitle: {},
+      knownUrls: []
+    }));
+    const discoverOptions = {
+      ...buildDiscoverOptions(options),
+      knownUrls: knownTargetInfo.knownUrls
+    };
     if (platform === "qwen") {
       if (options?.useLegacyQwenDiscovery === true) {
-        return await discoverQwenPlatform(tab, options);
+        return await discoverQwenPlatform(tab, discoverOptions);
       }
-      const knownTargetsByTitle = await getKnownTargetsByTitle(platform);
       const discovery = await sendTabMessage(
         tab.id,
         {
           type: "AIHR_DISCOVER_QWEN_HISTORY",
           options: {
-            ...buildDiscoverOptions(options),
-            knownTargetsByTitle,
+            ...discoverOptions,
+            knownTargetsByTitle: knownTargetInfo.knownTargetsByTitle,
             runId: activeRun?.id || null,
             restoreAfterClick: Boolean(borrowedTab)
           }
@@ -1020,7 +1175,7 @@ async function discoverPlatform(platform, openerTabId, options) {
       tab.id,
       {
         type: "AIHR_DISCOVER_HISTORY",
-        options: buildDiscoverOptions(options)
+        options: discoverOptions
       },
       DISCOVERY_MESSAGE_TIMEOUT_MS
     );
@@ -1038,7 +1193,7 @@ async function discoverPlatform(platform, openerTabId, options) {
         scannedTitles: 0,
         failures: 0
       });
-      return await discoverClickableHistoryPlatform(platform, tab, options);
+      return await discoverClickableHistoryPlatform(platform, tab, discoverOptions);
     }
 
     await saveDiscoveryProgress({
@@ -1072,6 +1227,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     extensionVersion: EXTENSION_VERSION,
     extensionBuildId: EXTENSION_BUILD_ID,
     status: "running",
+    mode: options?.mode === "incremental" ? "incremental" : "full",
     phase: "discovering_all_platforms",
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1084,6 +1240,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     skippedDuplicates: 0,
     failures: [],
     discoveries: [],
+    platformResults: {},
     stopRequested: false
   };
   await chrome.storage.local.set({ aihrActiveRun: activeRun });
@@ -1099,6 +1256,9 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
       }
 
       try {
+        if (activeRun.mode === "incremental") {
+          await postSyncState(platform, "started").catch(() => undefined);
+        }
         await saveStatus({ phase: `discovering_${platform}` });
         await saveDiscoveryProgress({
           platform,
@@ -1118,6 +1278,12 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
           totalTargets: dedupeTargets(allTargets).length
         });
       } catch (error) {
+        if (activeRun.mode === "incremental") {
+          await postSyncState(platform, "failed", {
+            error: error instanceof Error ? error.message : "Discovery failed.",
+            backoffUntil: new Date(Date.now() + AUTO_PILOT_RETRY_MS).toISOString()
+          }).catch(() => undefined);
+        }
         await saveDiscoveryProgress({
           platform,
           phase: "failed",
@@ -1139,12 +1305,15 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     }
 
     const discoveredTargets = dedupeTargets(allTargets);
-    const targets = await filterKnownTargets(discoveredTargets);
+    const targets = await filterKnownTargets(discoveredTargets, options);
     await saveStatus({
       totalTargets: targets.length,
       skippedDuplicates: (activeRun.skippedDuplicates || 0) + discoveredTargets.length - targets.length
     });
     await initializeQueue(targets, options);
+    if (activeRun.status === "completed") {
+      await finalizeIncrementalRun(activeRun);
+    }
     return activeRun;
   } catch (error) {
     await saveStatus({
@@ -1156,15 +1325,63 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
   }
 }
 
-async function scheduleBackgroundAutoPilot(delayMs = AUTO_PILOT_RETRY_MS) {
-  await chrome.storage.local.set({ aihrAutoPilotNextAt: Date.now() + delayMs });
-  await chrome.alarms.create(AUTO_PILOT_ALARM, { when: Date.now() + delayMs });
+async function getBackgroundSyncSettings() {
+  const stored = await chrome.storage.local.get("aihrBackgroundSyncSettings");
+  return {
+    enabled: stored.aihrBackgroundSyncSettings?.enabled !== false,
+    intervalMinutes: Math.min(
+      Math.max(Number(stored.aihrBackgroundSyncSettings?.intervalMinutes) || 360, 60),
+      1440
+    ),
+    scanLimit: Math.min(Math.max(Number(stored.aihrBackgroundSyncSettings?.scanLimit) || 50, 20), 100),
+    stopAfterKnown: Math.min(
+      Math.max(Number(stored.aihrBackgroundSyncSettings?.stopAfterKnown) || 10, 3),
+      30
+    )
+  };
+}
+
+async function setBackgroundSyncEnabled(enabled) {
+  const settings = await getBackgroundSyncSettings();
+  const nextSettings = { ...settings, enabled: Boolean(enabled) };
+  await chrome.storage.local.set({ aihrBackgroundSyncSettings: nextSettings });
+  await Promise.all(
+    Object.keys(PLATFORM_HISTORY_URLS).map((platform) =>
+      postSyncState(platform, "background", { enabled: nextSettings.enabled }).catch(() => undefined)
+    )
+  );
+  if (nextSettings.enabled) {
+    await scheduleBackgroundAutoPilot(2 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000));
+  } else {
+    await chrome.alarms.clear(AUTO_PILOT_ALARM);
+    await chrome.storage.local.remove("aihrAutoPilotNextAt");
+  }
+  return nextSettings;
+}
+
+async function scheduleBackgroundAutoPilot(delayMs = AUTO_PILOT_INTERVAL_MS) {
+  const settings = await getBackgroundSyncSettings();
+  if (!settings.enabled) return;
+  const scheduledAt = Date.now() + Math.max(delayMs, 60000);
+  await chrome.storage.local.set({ aihrAutoPilotNextAt: scheduledAt });
+  await chrome.alarms.create(AUTO_PILOT_ALARM, { when: scheduledAt });
+}
+
+async function ensureBackgroundAutoPilotScheduled(defaultDelayMs) {
+  const stored = await chrome.storage.local.get("aihrAutoPilotNextAt");
+  const nextAt = Number(stored.aihrAutoPilotNextAt) || 0;
+  await scheduleBackgroundAutoPilot(nextAt > Date.now() ? nextAt - Date.now() : defaultDelayMs);
 }
 
 async function runBackgroundAutoPilot() {
   const stored = await chrome.storage.local.get(["aihrActiveRun", "aihrAutoPilotNextAt"]);
   activeRun = stored.aihrActiveRun || activeRun;
-  if (activeRun?.status === "running") return;
+  const settings = await getBackgroundSyncSettings();
+  if (!settings.enabled) return;
+  if (activeRun?.status === "running") {
+    await scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS);
+    return;
+  }
 
   const nextAt = Number(stored.aihrAutoPilotNextAt) || 0;
   if (nextAt > Date.now()) {
@@ -1173,47 +1390,186 @@ async function runBackgroundAutoPilot() {
   }
 
   const response = await fetch(LOCAL_AUDIT_URL, {
-    headers: localApiHeaders()
+    headers: await localApiHeaders()
   });
   if (!response.ok) {
-    await scheduleBackgroundAutoPilot();
+    await scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS);
     return;
   }
 
   const payload = await response.json();
+  const now = Date.now();
+  const intervalMs = settings.intervalMinutes * 60 * 1000;
   const platforms = (payload?.audit?.platforms || [])
     .filter(
-      (item) =>
-        item?.importedConversations === 0 ||
-        item?.latestDiscovery?.evidenceStrong !== true ||
-        Number(item?.latestDiscovery?.failuresCount || 0) > 0
+      (item) => {
+        const syncState = item?.syncState || {};
+        if (syncState.backgroundEnabled === false) return false;
+        const backoffUntil = syncState.backoffUntil ? Date.parse(syncState.backoffUntil) : 0;
+        if (backoffUntil > now) return false;
+        const lastSyncedAt = syncState.lastSyncedAt ? Date.parse(syncState.lastSyncedAt) : 0;
+        return !lastSyncedAt || now - lastSyncedAt >= intervalMs;
+      }
     )
     .map((item) => item.platform)
     .filter((platform) => PLATFORM_HISTORY_URLS[platform]);
 
   if (!platforms.length) {
-    await chrome.storage.local.remove("aihrAutoPilotNextAt");
+    await scheduleBackgroundAutoPilot(intervalMs);
     return;
   }
 
-  await chrome.storage.local.set({ aihrAutoPilotNextAt: Date.now() + AUTO_PILOT_RETRY_MS });
+  await chrome.storage.local.set({ aihrAutoPilotNextAt: Date.now() + intervalMs });
   await runAllPlatformsCapture({
     sourceTabId: undefined,
     options: {
       platforms,
-      maxItems: 3000,
-      maxScrolls: 200,
-      delayMs: 3200,
-      stopAfterNoNewScrolls: 8,
-      delayBetweenPagesMs: DEFAULT_DELAY_MS,
-      jitterMs: DEFAULT_JITTER_MS
+      mode: "incremental",
+      maxItems: settings.scanLimit,
+      maxScrolls: 30,
+      delayMs: 3800,
+      stopAfterNoNewScrolls: 4,
+      stopAfterKnown: settings.stopAfterKnown,
+      pageDelayMs: DEFAULT_DELAY_MS,
+      pageJitterMs: DEFAULT_JITTER_MS
     }
   });
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+function platformFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (["chatgpt.com", "chat.openai.com"].includes(parsed.hostname)) return "chatgpt";
+    if (parsed.hostname === "gemini.google.com") return "gemini";
+    if (parsed.hostname === "chat.deepseek.com") return "deepseek";
+    if (["www.qianwen.com", "qianwen.com"].includes(parsed.hostname)) return "qwen";
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isConversationUrl(url) {
+  const platform = platformFromUrl(url);
+  if (!platform) return false;
+  try {
+    const pathname = new URL(url).pathname;
+    if (platform === "chatgpt") return /\/c\/[a-zA-Z0-9-]+/.test(pathname);
+    if (platform === "gemini") return /\/app\/[a-zA-Z0-9_-]+/.test(pathname);
+    if (platform === "deepseek") return /\/a\/chat\/s\/[a-zA-Z0-9_-]+/.test(pathname);
+    return /\/chat\/[a-zA-Z0-9_-]+/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+function getTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.get(tabId, (tab) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(tab);
+    });
+  });
+}
+
+async function scheduleConversationSnapshot(tabId, url) {
+  if (!tabId || !isConversationUrl(url)) return;
+  const settings = await getBackgroundSyncSettings();
+  if (!settings.enabled) return;
+  const stored = await chrome.storage.local.get("aihrSnapshotCooldowns");
+  const lastCapturedAt = Number(stored.aihrSnapshotCooldowns?.[url]) || 0;
+  const scheduledAt = nextSnapshotAt({
+    now: Date.now(),
+    lastCapturedAt,
+    cooldownMs: SNAPSHOT_COOLDOWN_MS,
+    minDelayMs: 20000,
+    jitterMs: 25000
+  });
+  await chrome.alarms.create(`${SNAPSHOT_ALARM_PREFIX}${tabId}`, {
+    when: scheduledAt
+  });
+}
+
+async function captureOpenTabSnapshot(tabId) {
+  const settings = await getBackgroundSyncSettings();
+  if (!settings.enabled) return;
+  const run = await loadStatus();
+  if (run?.status === "running") return;
+  const tab = await getTab(tabId);
+  if (!tab?.url || !isConversationUrl(tab.url)) return;
+
+  const stored = await chrome.storage.local.get("aihrSnapshotCooldowns");
+  const cooldowns = stored.aihrSnapshotCooldowns || {};
+  if (Date.now() - (Number(cooldowns[tab.url]) || 0) < SNAPSHOT_COOLDOWN_MS) return;
+
+  let response;
+  try {
+    response = await sendTabMessage(tabId, { type: "AIHR_CAPTURE_CURRENT" });
+  } catch {
+    await injectContentScript(tabId);
+    await sleep(1200);
+    response = await sendTabMessage(tabId, { type: "AIHR_CAPTURE_CURRENT" });
+  }
+  if (!response?.payload?.messages?.length) return;
+  await postConversation(response.payload);
+  cooldowns[tab.url] = Date.now();
+  const entries = Object.entries(cooldowns)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 200);
+  await chrome.storage.local.set({ aihrSnapshotCooldowns: Object.fromEntries(entries) });
+}
+
+async function getConnectedPlatforms() {
+  const tabs = await queryTabs({
+    url: [
+      "https://chatgpt.com/*",
+      "https://chat.openai.com/*",
+      "https://gemini.google.com/*",
+      "https://chat.deepseek.com/*",
+      "https://www.qianwen.com/*",
+      "https://qianwen.com/*"
+    ]
+  });
+  return [...new Set(tabs.map((tab) => platformFromUrl(tab.url || "")).filter(Boolean))];
+}
+
+async function getRuntimeStatus() {
+  const run = (await loadStatus()) || idleStatus();
+  const stored = await chrome.storage.local.get("aihrAutoPilotNextAt");
+  return {
+    ...run,
+    connectedPlatforms: await getConnectedPlatforms(),
+    backgroundSync: {
+      ...(await getBackgroundSyncSettings()),
+      nextAt: stored.aihrAutoPilotNextAt ? new Date(stored.aihrAutoPilotNextAt).toISOString() : null
+    }
+  };
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "AIHR_CONVERSATION_ACTIVITY") {
+    const tabId = sender.tab?.id;
+    const url = typeof message.url === "string" ? message.url : sender.tab?.url;
+    scheduleConversationSnapshot(tabId, url)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Snapshot scheduling failed." })
+      );
+    return true;
+  }
+
   if (message?.type === "AIHR_GET_RUN_STATUS") {
-    loadStatus().then((run) => sendResponse(run || idleStatus()));
+    getRuntimeStatus().then((run) => sendResponse(run));
+    return true;
+  }
+
+  if (message?.type === "AIHR_SET_BACKGROUND_SYNC") {
+    setBackgroundSyncEnabled(message.enabled)
+      .then((settings) => sendResponse({ ok: true, settings }))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Background sync update failed." })
+      );
     return true;
   }
 
@@ -1304,11 +1660,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith(SNAPSHOT_ALARM_PREFIX)) {
+    const tabId = Number(alarm.name.slice(SNAPSHOT_ALARM_PREFIX.length));
+    if (Number.isFinite(tabId)) captureOpenTabSnapshot(tabId).catch(() => undefined);
+    return;
+  }
   if (alarm.name === AUTO_PILOT_ALARM) {
     chrome.storage.local
       .remove("aihrAutoPilotNextAt")
       .then(() => runBackgroundAutoPilot())
-      .catch(() => scheduleBackgroundAutoPilot().catch(() => undefined));
+      .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
     return;
   }
   if (alarm.name !== CAPTURE_ALARM) return;
@@ -1322,14 +1683,31 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   });
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo.url || tab.url;
+  if ((changeInfo.status === "complete" || changeInfo.url) && url) {
+    scheduleConversationSnapshot(tabId, url).catch(() => undefined);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.alarms.clear(`${SNAPSHOT_ALARM_PREFIX}${tabId}`).catch(() => undefined);
+});
+
 chrome.runtime.onStartup.addListener(() => {
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
+  ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000)).catch(
+    () => undefined
+  );
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
+  ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000)).catch(
+    () => undefined
+  );
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -1341,6 +1719,9 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 recoverInterruptedDiscovery()
-  .then(() => runBackgroundAutoPilot())
-  .catch(() => scheduleBackgroundAutoPilot().catch(() => undefined));
+  .then(() =>
+    ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000))
+  )
+  .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
+
 ensureContentScriptsInOpenTabs().catch(() => undefined);

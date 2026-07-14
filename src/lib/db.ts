@@ -88,11 +88,28 @@ function migrateDatabase(db: Database.Database) {
       max_items_reached INTEGER NOT NULL DEFAULT 0,
       max_scrolls_reached INTEGER NOT NULL DEFAULT 0,
       exhaustive INTEGER NOT NULL DEFAULT 0,
+      discovery_mode TEXT NOT NULL DEFAULT 'full' CHECK (discovery_mode IN ('full', 'incremental')),
       created_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_capture_discovery_runs_platform_created
     ON capture_discovery_runs(platform, created_at);
+
+    CREATE TABLE IF NOT EXISTS platform_sync_state (
+      platform TEXT PRIMARY KEY,
+      last_synced_at TEXT,
+      last_discovered_at TEXT,
+      last_seen_url TEXT,
+      last_success_at TEXT,
+      last_error TEXT,
+      status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'syncing', 'error', 'paused')),
+      last_new_conversations INTEGER NOT NULL DEFAULT 0,
+      last_new_messages INTEGER NOT NULL DEFAULT 0,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      backoff_until TEXT,
+      background_enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   const discoveryColumns = db
@@ -103,6 +120,9 @@ function migrateDatabase(db: Database.Database) {
   }
   if (!discoveryColumns.some((column) => column.name === "extension_build_id")) {
     db.exec("ALTER TABLE capture_discovery_runs ADD COLUMN extension_build_id TEXT");
+  }
+  if (!discoveryColumns.some((column) => column.name === "discovery_mode")) {
+    db.exec("ALTER TABLE capture_discovery_runs ADD COLUMN discovery_mode TEXT NOT NULL DEFAULT 'full'");
   }
 }
 

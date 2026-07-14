@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS capture_discovery_runs (
   max_items_reached INTEGER NOT NULL DEFAULT 0,
   max_scrolls_reached INTEGER NOT NULL DEFAULT 0,
   exhaustive INTEGER NOT NULL DEFAULT 0,
+  discovery_mode TEXT NOT NULL DEFAULT 'full' CHECK (discovery_mode IN ('full', 'incremental')),
   extension_version TEXT,
   extension_build_id TEXT,
   created_at TEXT NOT NULL
@@ -117,3 +118,19 @@ CREATE TABLE IF NOT EXISTS capture_discovery_runs (
 
 CREATE INDEX IF NOT EXISTS idx_capture_discovery_runs_platform_created
 ON capture_discovery_runs(platform, created_at);
+
+CREATE TABLE IF NOT EXISTS platform_sync_state (
+  platform TEXT PRIMARY KEY,
+  last_synced_at TEXT,
+  last_discovered_at TEXT,
+  last_seen_url TEXT,
+  last_success_at TEXT,
+  last_error TEXT,
+  status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'syncing', 'error', 'paused')),
+  last_new_conversations INTEGER NOT NULL DEFAULT 0,
+  last_new_messages INTEGER NOT NULL DEFAULT 0,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  backoff_until TEXT,
+  background_enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);

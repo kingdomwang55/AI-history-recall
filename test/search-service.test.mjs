@@ -9,6 +9,7 @@ register("./path-alias-loader.mjs", import.meta.url);
 
 const { importParsedConversations } = await import("../src/services/import-service.ts");
 const { HIGHLIGHT_END, HIGHLIGHT_START, searchConversations } = await import("../src/services/search-service.ts");
+const { getDb } = await import("../src/lib/db.ts");
 
 function closeDb() {
   if (globalThis.aiHistoryRecallDb) {
@@ -104,4 +105,39 @@ test("returns the expected search result shape", () => {
       result.snippet.includes(HIGHLIGHT_START) ||
       result.snippet.includes(HIGHLIGHT_END)
   );
+});
+
+test("filters conversations by an inclusive imported date range", () => {
+  useTempDb();
+  const older = seedSearchConversation();
+  getDb().prepare("UPDATE conversations SET imported_at = ? WHERE id = ?").run(
+    "2026-01-15T10:00:00.000Z",
+    older.conversationIds[0]
+  );
+
+  const newer = importParsedConversations(
+    [
+      {
+        title: "Date Range Match",
+        sourcePlatform: "chatgpt",
+        sourceUrl: "https://chatgpt.com/c/date-range-match",
+        messages: [{ role: "user", content: "This conversation is inside the selected range." }]
+      }
+    ],
+    "date-range.json",
+    "chatgpt"
+  );
+  getDb().prepare("UPDATE conversations SET imported_at = ? WHERE id = ?").run(
+    "2026-02-20T12:00:00.000Z",
+    newer.conversationIds[0]
+  );
+
+  const results = searchConversations({
+    query: "",
+    dateFrom: "2026-02-20",
+    dateTo: "2026-02-20",
+    sort: "newest"
+  });
+
+  assert.deepEqual(results.map((result) => result.conversationId), [newer.conversationIds[0]]);
 });

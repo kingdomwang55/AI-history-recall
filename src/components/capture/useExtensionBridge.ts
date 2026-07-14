@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ExtensionRunStatus } from "@/components/capture/capture-types";
 
-const expectedExtensionVersion = "0.1.38";
-const expectedExtensionBuildId = "no-debugger-input-20260711";
+const expectedExtensionVersion = "0.1.42";
+const expectedExtensionBuildId = "deepseek-pinned-groups-20260715";
 
 export function extensionNeedsUpdate(version?: string, buildId?: string) {
   if (!version) return false;
@@ -21,15 +21,12 @@ export function extensionNeedsUpdate(version?: string, buildId?: string) {
 export function useExtensionBridge({
   onCompleted,
   onFailed,
-  onStopped,
-  onReloadRequested
+  onStopped
 }: {
   onCompleted?: () => void;
   onFailed?: () => void;
   onStopped?: () => void;
-  onReloadRequested?: () => void;
 } = {}) {
-  const extensionReloadRequestedRef = useRef(false);
   const [extensionReady, setExtensionReady] = useState(false);
   const [extensionMeta, setExtensionMeta] = useState<{ version?: string; buildId?: string }>({});
   const [extensionCheckedAt, setExtensionCheckedAt] = useState<string | null>(null);
@@ -62,7 +59,10 @@ export function useExtensionBridge({
           return;
         }
         setExtensionReady(true);
-        setExtensionMeta({ version: event.data.version, buildId: event.data.buildId });
+        setExtensionMeta({
+          version: event.data.run?.extensionVersion ?? event.data.version,
+          buildId: event.data.run?.extensionBuildId ?? event.data.buildId
+        });
         setExtensionBridgeError(null);
         setExtensionCheckedAt(new Date().toISOString());
         resolve(event.data as T);
@@ -84,7 +84,10 @@ export function useExtensionBridge({
       }
       if (event.data.type === "AIHR_WEB_STATUS_RESULT") {
         setExtensionReady(true);
-        setExtensionMeta({ version: event.data.version, buildId: event.data.buildId });
+        setExtensionMeta({
+          version: event.data.run?.extensionVersion ?? event.data.version,
+          buildId: event.data.run?.extensionBuildId ?? event.data.buildId
+        });
         setExtensionRun(event.data.run ?? null);
         setExtensionBridgeError(null);
         setExtensionCheckedAt(new Date().toISOString());
@@ -135,26 +138,6 @@ export function useExtensionBridge({
       window.clearInterval(timer);
     };
   }, [extensionReady, onCompleted, onFailed, onStopped, requestExtension]);
-
-  useEffect(() => {
-    const outdated = extensionReady && extensionNeedsUpdate(extensionMeta.version, extensionMeta.buildId);
-    if (!outdated || extensionRun?.status === "running") return;
-
-    const reconnect = () => window.location.reload();
-    window.addEventListener("focus", reconnect, { once: true });
-    return () => window.removeEventListener("focus", reconnect);
-  }, [extensionMeta.buildId, extensionMeta.version, extensionReady, extensionRun?.status]);
-
-  useEffect(() => {
-    const outdated = extensionReady && extensionNeedsUpdate(extensionMeta.version, extensionMeta.buildId);
-    if (!outdated || extensionRun?.status === "running" || extensionReloadRequestedRef.current) return;
-
-    extensionReloadRequestedRef.current = true;
-    onReloadRequested?.();
-    requestExtension({ type: "AIHR_WEB_RELOAD_EXTENSION" }, 5000)
-      .catch(() => undefined)
-      .finally(() => window.setTimeout(() => window.location.reload(), 1200));
-  }, [extensionMeta.buildId, extensionMeta.version, extensionReady, extensionRun?.status, onReloadRequested, requestExtension]);
 
   return {
     expectedExtensionVersion,

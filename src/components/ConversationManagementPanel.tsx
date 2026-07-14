@@ -67,14 +67,14 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
   }
 
   return (
-    <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5 text-sm">
+    <div className="border-t border-[var(--line)] p-5 text-sm">
       <h2 className="text-base font-semibold text-[var(--foreground)]">维护</h2>
       <div className="mt-4 grid gap-3">
         <button
           type="button"
           onClick={reindexAllSearch}
           disabled={pending !== null}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-subtle)] px-3 py-2 font-medium transition hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-[var(--line)] bg-[var(--surface)] px-3 py-2 font-medium transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw size={15} strokeWidth={1.8} />
           <span>{pending === "reindex" ? "重建中" : "重建搜索索引"}</span>
@@ -83,7 +83,7 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
           type="button"
           onClick={deleteCurrentConversation}
           disabled={pending !== null}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-[7px] border border-[color-mix(in_srgb,var(--danger)_22%,transparent)] bg-transparent px-3 py-2 font-medium text-[var(--danger)] transition hover:bg-[var(--danger-soft)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Trash2 size={15} strokeWidth={1.8} />
           <span>{pending === "delete" ? "删除中" : "删除这段对话"}</span>

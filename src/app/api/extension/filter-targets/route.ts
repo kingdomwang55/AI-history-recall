@@ -1,5 +1,6 @@
 import { requireApiToken } from "@/lib/api-auth";
 import { getDb } from "@/lib/db";
+import { selectIncrementalTargets } from "@/capture/incremental-sync";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,16 @@ export async function GET(request: Request) {
     rows.filter((row) => row.title && row.url).map((row) => [row.title.trim(), { url: row.url }])
   );
 
-  return Response.json({ knownTargetsByTitle });
+  const knownUrls = getDb()
+    .prepare(
+      `SELECT source_url AS url
+       FROM conversations
+       WHERE source_platform = ? AND source_url IS NOT NULL
+       ORDER BY datetime(imported_at) DESC`
+    )
+    .all(platform) as Array<{ url: string }>;
+
+  return Response.json({ knownTargetsByTitle, knownUrls: knownUrls.map((row) => row.url) });
 }
 
 export async function POST(request: Request) {
@@ -45,6 +55,11 @@ export async function POST(request: Request) {
     typeof body === "object" && body !== null && Array.isArray((body as { targets?: unknown }).targets)
       ? ((body as { targets: CaptureTarget[] }).targets ?? [])
       : [];
+  const rawBody = body as {
+    mode?: unknown;
+    maxItems?: unknown;
+    stopAfterKnown?: unknown;
+  } | null;
 
   const targets = rawTargets
     .filter((target) => typeof target?.url === "string" && target.url.length > 0)
@@ -72,6 +87,27 @@ export async function POST(request: Request) {
       updateTitle.run(target.title.trim(), target.platform, target.url);
     }
   })();
+  if (rawBody?.mode === "incremental") {
+    const selection = selectIncrementalTargets(
+      targets.map((target) => ({ ...target, url: target.url as string })),
+      {
+        knownUrls: known,
+        maxItems: Number(rawBody.maxItems) || 50,
+        stopAfterKnown: Number(rawBody.stopAfterKnown) || 10
+      }
+    );
+    return Response.json({
+      targets: selection.targets,
+      skipped: selection.knownCount,
+      incremental: {
+        scannedCount: selection.scannedCount,
+        knownCount: selection.knownCount,
+        consecutiveKnown: selection.consecutiveKnown,
+        stopReason: selection.stopReason
+      }
+    });
+  }
+
   const unknown = targets.filter((target) => !known.has(target.url as string));
 
   return Response.json({ targets: unknown, skipped: targets.length - unknown.length });

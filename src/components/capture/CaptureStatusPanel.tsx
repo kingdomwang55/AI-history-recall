@@ -24,17 +24,17 @@ export function ExtensionConnectionStatus({
 }) {
   return (
     <div
-      className={`mt-4 rounded-lg border p-4 text-sm ${
+      className={`mt-4 rounded-[8px] border p-4 text-sm ${
         extensionReady
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-          : "border-amber-200 bg-amber-50 text-amber-900"
+          ? "border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[var(--success-soft)] text-[var(--success)]"
+          : "border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[var(--warning-soft)] text-[var(--warning)]"
       }`}
     >
       <div className="font-semibold">{extensionReady ? "扩展已连接" : "扩展未连接"}</div>
       <div className="mt-2 text-xs leading-5">
         {extensionReady
           ? "当前页面已经检测到 AI History Recall Chrome 扩展，可以从应用页面下发采集任务。"
-          : "当前页面没有检测到 AI History Recall Chrome 扩展。请打开 chrome://extensions，开启 Developer mode，Load unpacked 选择本项目 extension/ 目录；如果已经加载过，请点击该扩展卡片上的 Reload，然后刷新本页面。"}
+          : "当前页面没有检测到 AI History Recall Chrome 扩展。请打开 chrome://extensions，开启 Developer mode，Load unpacked 选择本项目 extension/ 目录；如果已经加载过，请点击该扩展卡片上的 Reload，扩展会自动重新接入已打开页面。"}
       </div>
       <div className="mt-2 font-mono text-xs">{extensionDirectoryPath}</div>
       <div className="mt-1 font-mono text-xs">{chromeExtensionsUrl}</div>
@@ -42,7 +42,7 @@ export function ExtensionConnectionStatus({
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs leading-5">
           <li>Chrome 扩展页中 AI History Recall Capture 必须是 Enabled。</li>
           <li>修改 manifest 或脚本后必须点扩展卡片上的 Reload。</li>
-          <li>刷新本页后这里必须变成“扩展已连接”，再下发采集任务。</li>
+          <li>回到本页等待几秒；扩展会自动重新接入，无需手动刷新。</li>
         </ol>
       ) : null}
       {extensionBridgeError ? <div className="mt-2 text-xs">{extensionBridgeError}</div> : null}
@@ -134,7 +134,7 @@ export function ExtensionRunStatusPanel({
                 <div>stop {extensionRun.discoveryProgress.stopReason}</div>
               ) : null}
               {extensionRun.discoveryProgress.error ? (
-                <div className="text-red-600">{extensionRun.discoveryProgress.error}</div>
+                <div className="text-[var(--danger)]">{extensionRun.discoveryProgress.error}</div>
               ) : null}
             </div>
           ) : null}
@@ -193,10 +193,10 @@ export function CaptureStatusPanel({
       ) : null}
       {auditSummary ? (
         <div
-          className={`mt-4 rounded-lg border p-3 text-sm ${
+          className={`mt-4 rounded-[8px] border p-3 text-sm ${
             auditSummary.readyForReview
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-amber-200 bg-amber-50 text-amber-900"
+              ? "border-[color-mix(in_srgb,var(--success)_20%,transparent)] bg-[var(--success-soft)] text-[var(--success)]"
+              : "border-[color-mix(in_srgb,var(--warning)_20%,transparent)] bg-[var(--warning-soft)] text-[var(--warning)]"
           }`}
         >
           <div className="font-semibold">

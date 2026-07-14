@@ -60,7 +60,7 @@ npm run dev
 
 1. 打开首页查看本地数据概览。
 2. 进入 `/import` 上传 `txt`、`md`、`json` 或 `html` 文件。
-3. 进入 `/capture` 使用 Agent 一键执行浏览器采集，或手动生成 CapturePlan JSON。
+3. 进入 `/capture` 查看后台同步状态，或点击“同步新增”立即检查四个平台。
 4. 进入 `/search` 输入关键词搜索。
 5. 点击搜索结果进入对话详情。
 6. 在详情页复制单条消息或整段对话。
@@ -103,7 +103,7 @@ npm run dev
 
 ### 1. 推荐路径：常驻 Chrome 扩展
 
-进入 `/capture` 后，普通使用只需要看页面顶部的采集向导。第一次使用时按页面提示加载 `extension/` 目录，之后点击主按钮即可。它会自动检查扩展连接、读取本地审计、选择需要采集的平台，并把任务交给扩展在你当前已登录的 Chrome 窗口里低频后台执行。
+进入 `/capture` 后，普通使用只需要看页面顶部的增量同步区。第一次使用时按页面提示加载 `extension/` 目录；之后扩展会在低频 alarm 中检查新增记录，也会在你打开具体 AI 对话后延迟保存当前快照。需要立即检查时，点击一次“同步新增”即可。
 
 这个方式会使用你平时浏览器里的登录 session，不需要为了采集重新打开一个没有登录态的 Chrome。
 
@@ -144,7 +144,7 @@ CHROME_PATH="/path/to/Google Chrome" npm run dev
 2. 开启 Developer mode
 3. 点击 Load unpacked
 4. 选择本项目的 `extension/` 目录
-5. 回到 `/capture`，看到页面提示“扩展已连接”后点击主按钮
+5. 回到 `/capture`，等待页面显示“扩展已连接”
 
 扩展会把当前页面解析出的消息发送到：
 
@@ -158,7 +158,9 @@ http://localhost:3000/api/extension/capture-page
 - `Start Full History Capture`：从当前平台历史页低频滚动发现对话 URL，再逐条打开采集。
 - `Start All Platforms Capture`：依次打开 ChatGPT、Gemini、DeepSeek、通义千问/Qwen 历史页发现 URL，再按约 5.2-8.4 秒的页面间隔分批采集。Qwen 左侧历史列表不直接暴露 `href`，扩展会用专门的短步骤流程逐条低频点击可见历史行获取 `/chat/...` URL，避免一个长请求卡死整个任务。
 
-扩展会把采集结果写入本地接口 `/api/extension/capture-page`，后端继续复用 `source_platform + source_url` 去重、SQLite 持久化和 FTS5 索引。全量发现阶段还会写入 `/api/extension/discovery-run`，用于 `/api/capture/audit` 判断某个平台最近一次发现是否以 `no_new_targets` 自然结束。采集阶段会把 URL 队列持久化到 `chrome.storage`，并通过 `chrome.alarms` 逐条推进，降低 MV3 background worker 长时间任务被挂起的影响。停止任务不会删除队列，可以从 popup 或 `/capture` 页面继续队列；需要重开任务时可以清理扩展状态。`/capture` 的扩展运行状态会显示当前平台、discovery phase、已发现 URL 数和失败数；Qwen 逐行发现时还会显示正在点击的标题。
+扩展会把采集结果写入本地接口 `/api/extension/capture-page`。首次见到的 `source_platform + source_url` 创建新会话；已存在的会话会比较消息序列，只追加未见过的尾部消息并同步更新 FTS5，原有 tags、remark 和 note 不会被覆盖。全量发现与增量发现分别记录，增量运行不会覆盖此前“全量已扫完”的审计证据。
+
+增量同步默认每 6 小时检查一次，每个平台最多扫描最近 50 条；连续遇到 10 条已知 URL 时提前停止。失败后至少退避 15 分钟。用户打开具体对话 URL 时，扩展会随机延迟 20–45 秒保存快照；同一页面继续产生消息时会在页面安静 45 秒后预约补抓，同一 URL 10 分钟内不重复且冷却期内的更新不会丢失。所有队列和设置都在 `chrome.storage`，所有对话和同步状态都在本地 SQLite；不上传 cookie，不接云端，也不使用 `chrome.debugger` 或系统级输入模拟。
 
 扩展说明见：
 
@@ -168,17 +170,17 @@ extension/README.md
 
 ### 从应用页面驱动扩展
 
-`/capture` 页面顶部现在是 “采集向导”：
+`/capture` 页面顶部现在是“增量同步”：
 
-普通使用只需要点击页面顶部的“一键诊断并继续采集”。它会自动执行：
+普通使用只需要点击页面顶部的“同步新增”。它会自动执行：
 
-1. 检查 Chrome 扩展是否连接。
-2. 读取本地审计，判断哪些平台还需要采集。
-3. 如果有旧队列可继续，自动继续队列。
-4. 如果 Gemini/Qwen 等平台证据偏弱，只重跑弱证据平台。
-5. 如果还没有完整采集记录，启动四平台低频全量采集。
+1. 检查 Chrome 扩展和可恢复队列。
+2. 从四个平台最新历史记录开始发现。
+3. 每个平台最多检查 50 条，连续 10 条已知即停止。
+4. 对新增 URL 创建会话，对已有 URL 合并新消息。
+5. 更新 SQLite、FTS5 和每个平台最近同步状态。
 
-页面顶部有流程示意和“没有反应时怎么办”。扩展 service worker 会直接读取本地审计，自动重跑证据不足的平台；`/capture` 主要负责显示状态。Qwen 优先使用其页面自身的 session list 接口，以每页 50 条、1.6–2.5 秒间隔分页发现全部历史，接口不可用时回退低频滚动；ChatGPT 会优先尝试登录页面同源会话列表接口，接口不可用或返回空列表时回退侧栏滚动；具体对话采集会等待消息渲染完成后再导入，并保持 5.2–8.4 秒节流。请求只在当前登录页面读取前端原本可访问的数据，不导出 cookie。修改未打包扩展代码后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入；扩展会自动接管已经打开的页面并续跑，无需刷新 `/capture`。当前版本应显示 `extension v0.1.38 / no-debugger-input-20260711`。
+页面顶部集中显示四个平台是否已有页面打开、最近同步时间、最近新增对话/消息数和错误。Qwen 优先使用页面自身的 session list 接口，ChatGPT 优先使用登录页面的同源会话列表接口，接口不可用时回退低频侧栏发现。DeepSeek 的置顶分组会单独去重，不占“连续已知”阈值，避免遮住后面的“昨天”和“7 天内”新记录。修改未打包扩展代码后，只需在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入；扩展会自动补注入已打开页面，无需刷新 `/capture`。当前版本应显示 `extension v0.1.42 / deepseek-pinned-groups-20260715`。
 
 审计区会显示每个平台的导入数、索引数、最近 discovery stop reason、扫描标题数、失败数和“耗尽证据”。当 `readyForReview` 为真时，表示本地数据、索引、队列和最近全量发现证据都已就绪，可以再人工抽查平台侧历史列表；如果最近发现是 `targets=0/scanned=0`，会被标记为弱证据，不会直接通过验收。
 
@@ -472,16 +474,14 @@ data/
 - 支持 ChatGPT 官方导出 `conversations.json`
 - 支持 Claude 官方导出
 - 支持 DeepSeek 历史记录导出
-- 导入去重
-- 批量删除和重新索引
 - 更好的中文分词搜索
 - 本地 embedding 语义搜索
 - 自动总结对话
 - 按项目聚类和问题资产分类
-- Chrome 扩展全量历史采集审计入库：记录每个平台 discovery stop reason 和 exhausted evidence
-- 更完整的浏览器历史列表自动滚动发现和审计证明
 - 通义千问官方导出格式解析
-- 导出为 Markdown 或 JSON
+- 平台页面结构变化后的 adapter/selector 维护与诊断工具
+- 对历史消息编辑、重新生成答案和分支对话做冲突感知合并；当前无稳定重叠时会保守跳过，避免污染原记录
+- 在 UI 中开放每个平台独立的同步周期与限速预设；当前只提供统一的后台暂停/恢复
 
 ## 常用命令
 

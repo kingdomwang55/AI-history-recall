@@ -29,6 +29,41 @@ function safeRole(role: MessageRole) {
   return "unknown";
 }
 
+function messageSignature(message: { role: MessageRole; content: string }) {
+  return `${safeRole(message.role)}\u0000${message.content.replace(/\r\n/g, "\n").trim()}`;
+}
+
+function appendStartIndex(
+  existing: Array<{ role: MessageRole; content: string }>,
+  incoming: Array<{ role: MessageRole; content: string }>
+) {
+  const existingSignatures = existing.map(messageSignature);
+  const incomingSignatures = incoming.map(messageSignature);
+
+  if (incomingSignatures.length === 0) return 0;
+
+  for (let start = 0; start <= existingSignatures.length - incomingSignatures.length; start += 1) {
+    if (incomingSignatures.every((signature, index) => existingSignatures[start + index] === signature)) {
+      return incomingSignatures.length;
+    }
+  }
+
+  const maxOverlap = Math.min(existingSignatures.length, incomingSignatures.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    const existingStart = existingSignatures.length - overlap;
+    for (let incomingStart = 0; incomingStart <= incomingSignatures.length - overlap; incomingStart += 1) {
+      const matches = incomingSignatures
+        .slice(incomingStart, incomingStart + overlap)
+        .every((signature, index) => existingSignatures[existingStart + index] === signature);
+      if (matches) return incomingStart + overlap;
+    }
+  }
+
+  // A snapshot without any stable overlap may be partial or from a changed extractor.
+  // Avoid corrupting the canonical transcript by appending an unrelated sequence.
+  return incomingSignatures.length;
+}
+
 export async function importFile(input: ImportFileInput): Promise<ImportResult> {
   const adapter = findAdapter(input);
 
@@ -99,7 +134,9 @@ function persistConversations(
 
   const transaction = db.transaction(() => {
     const conversationIds: string[] = [];
+    let importedConversations = 0;
     let importedMessages = 0;
+    let updatedConversations = 0;
     let skippedDuplicates = 0;
 
     const insertConversation = db.prepare(`
@@ -114,7 +151,7 @@ function persistConversations(
     `);
 
     const findExistingConversation = db.prepare(`
-      SELECT id
+      SELECT id, title
       FROM conversations
       WHERE source_platform = @sourcePlatform
         AND source_url = @sourceUrl
@@ -128,6 +165,19 @@ function persistConversations(
       VALUES (
         @id, @conversationId, @role, @content, @createdAt, @orderIndex
       )
+    `);
+
+    const getExistingMessages = db.prepare(`
+      SELECT role, content
+      FROM messages
+      WHERE conversation_id = ?
+      ORDER BY order_index
+    `);
+
+    const updateConversationAfterMerge = db.prepare(`
+      UPDATE conversations
+      SET updated_at = @updatedAt
+      WHERE id = @conversationId
     `);
 
     const insertSearchIndex = db.prepare(`
@@ -173,10 +223,56 @@ function persistConversations(
         const existing = findExistingConversation.get({
           sourcePlatform,
           sourceUrl
-        });
+        }) as { id: string; title: string } | undefined;
 
         if (existing) {
-          skippedDuplicates += 1;
+          const existingMessages = getExistingMessages.all(existing.id) as Array<{
+            role: MessageRole;
+            content: string;
+          }>;
+          const appendFrom = appendStartIndex(existingMessages, messages);
+          const appendedMessages = messages.slice(appendFrom);
+
+          if (appendedMessages.length === 0) {
+            skippedDuplicates += 1;
+            continue;
+          }
+
+          appendedMessages.forEach((message, index) => {
+            const messageId = randomUUID();
+            const role = safeRole(message.role);
+            const orderIndex = existingMessages.length + index;
+
+            insertMessage.run({
+              id: messageId,
+              conversationId: existing.id,
+              role,
+              content: message.content,
+              createdAt: message.createdAt ?? conversation.createdAt ?? null,
+              orderIndex
+            });
+
+            insertSearchIndex.run({
+              conversationId: existing.id,
+              messageId,
+              role,
+              title: existing.title,
+              content: message.content,
+              sourcePlatform
+            });
+
+            importedMessages += 1;
+          });
+
+          updateConversationAfterMerge.run({
+            conversationId: existing.id,
+            updatedAt:
+              conversation.updatedAt ??
+              appendedMessages.at(-1)?.createdAt ??
+              importedAt
+          });
+          updatedConversations += 1;
+          conversationIds.push(existing.id);
           continue;
         }
       }
@@ -228,11 +324,13 @@ function persistConversations(
       }
 
       conversationIds.push(conversationId);
+      importedConversations += 1;
     }
 
     return {
-      importedConversations: conversationIds.length,
+      importedConversations,
       importedMessages,
+      updatedConversations,
       conversationIds,
       skippedDuplicates
     };

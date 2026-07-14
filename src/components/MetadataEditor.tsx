@@ -59,9 +59,9 @@ export function MetadataEditor({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5"
+      className="p-5"
     >
-      <h2 className="text-lg font-semibold">标签和备注</h2>
+      <h2 className="text-base font-semibold">标签和备注</h2>
 
       <div className="mt-5 grid gap-2">
         <label htmlFor="tags" className="text-sm font-medium">
@@ -71,7 +71,7 @@ export function MetadataEditor({
           id="tags"
           value={tags}
           onChange={(event) => setTags(event.target.value)}
-          className="rounded-lg border border-[var(--line)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)]"
+          className="control bg-[var(--surface)] text-sm"
           placeholder="n8n, AI 编程, 报错解决"
         />
         <p className="text-xs text-[var(--muted)]">用逗号分隔多个标签。</p>
@@ -86,7 +86,7 @@ export function MetadataEditor({
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={6}
-          className="resize-y rounded-lg border border-[var(--line)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_18%,transparent)]"
+          className="control resize-y bg-[var(--surface)] text-sm"
           placeholder="这段对话解决了什么问题，后续怎么复用"
         />
       </div>
@@ -95,7 +95,7 @@ export function MetadataEditor({
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-[5px] bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Save size={15} strokeWidth={1.8} />
           <span>{pending ? "保存中" : "保存"}</span>

@@ -15,6 +15,7 @@ interface ImportResponse {
 
 export function ImportForm() {
   const [pending, setPending] = useState(false);
+  const [selectedCount, setSelectedCount] = useState(0);
   const [response, setResponse] = useState<ImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export function ImportForm() {
 
       setResponse(data as ImportResponse);
       form.reset();
+      setSelectedCount(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "导入失败");
     } finally {
@@ -49,17 +51,17 @@ export function ImportForm() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <form
         onSubmit={handleSubmit}
-        className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="panel p-5 sm:p-6"
       >
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-subtle)] text-[var(--accent-strong)]">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[5px] bg-[var(--accent-soft)] text-[var(--accent-strong)]">
             <UploadCloud size={20} strokeWidth={1.8} />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">选择本地文件</h2>
+            <h2 className="text-base font-semibold">选择本地文件</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               支持 JSON、Markdown、TXT、HTML。文件只会写入本机 SQLite。
             </p>
@@ -75,8 +77,9 @@ export function ImportForm() {
             name="files"
             type="file"
             multiple
+            onChange={(event) => setSelectedCount(event.currentTarget.files?.length ?? 0)}
             accept=".json,.md,.markdown,.txt,.html,.htm,application/json,text/plain,text/markdown,text/html"
-            className="block w-full rounded-lg border border-[var(--line)] bg-[var(--background)] px-3 py-3 text-sm file:mr-4 file:rounded-md file:border-0 file:bg-[var(--accent)] file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[var(--accent-strong)]"
+            className="block w-full rounded-[7px] border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-3 text-sm file:mr-4 file:rounded-[6px] file:border file:border-[var(--border)] file:bg-[var(--surface)] file:px-3 file:py-2 file:text-sm file:font-medium file:text-[var(--foreground)] hover:file:bg-[var(--surface-subtle)]"
           />
           <p className="text-xs text-[var(--muted)]">
             可以一次选择多个文件，系统会按扩展名调用对应 adapter。
@@ -85,35 +88,35 @@ export function ImportForm() {
 
         <button
           type="submit"
-          disabled={pending}
-          className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={pending || selectedCount === 0}
+          className="mt-6 inline-flex items-center justify-center gap-2 rounded-[7px] bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:bg-[var(--bg-hover)] disabled:text-[var(--text-disabled)] disabled:opacity-100"
         >
           <UploadCloud size={16} strokeWidth={1.8} />
-          <span>{pending ? "导入中" : "开始导入"}</span>
+          <span>{pending ? "导入中" : selectedCount ? `导入 ${selectedCount} 个文件` : "选择文件后导入"}</span>
         </button>
 
         {error ? (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">
+          <div className="mt-4 flex items-start gap-2 rounded-[7px] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[var(--danger-soft)] p-3 text-sm text-[var(--danger)]">
             <AlertTriangle size={16} strokeWidth={1.8} />
             <span>{error}</span>
           </div>
         ) : null}
       </form>
 
-      <aside className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5">
-        <h2 className="text-lg font-semibold">导入结果</h2>
+      <aside className="panel p-5">
+        <h2 className="text-base font-semibold">导入结果</h2>
         {!response ? (
-          <div className="mt-5 rounded-lg border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">
+          <div className="mt-4 border-t border-[var(--line)] pt-4 text-sm leading-6 text-[var(--muted)]">
             选择文件后，成功数量、消息数量和失败原因会显示在这里。
           </div>
         ) : (
           <div className="mt-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg bg-[var(--surface-subtle)] p-3">
+              <div className="border-l-2 border-[var(--accent)] bg-[var(--surface-subtle)] p-3">
                 <div className="text-2xl font-semibold">{response.total.conversations}</div>
                 <div className="text-xs text-[var(--muted)]">conversations</div>
               </div>
-              <div className="rounded-lg bg-[var(--surface-subtle)] p-3">
+              <div className="border-l-2 border-[var(--accent)] bg-[var(--surface-subtle)] p-3">
                 <div className="text-2xl font-semibold">{response.total.messages}</div>
                 <div className="text-xs text-[var(--muted)]">messages</div>
               </div>
@@ -123,7 +126,7 @@ export function ImportForm() {
               {response.results.map((result) => (
                 <div
                   key={result.fileName}
-                  className="rounded-lg border border-[var(--line)] p-3 text-sm"
+                  className="border-t border-[var(--line)] py-3 text-sm first:border-t-0"
                 >
                   <div className="flex items-start gap-2">
                     {result.ok ? (
@@ -134,7 +137,7 @@ export function ImportForm() {
                       />
                     ) : (
                       <AlertTriangle
-                        className="mt-0.5 text-red-600"
+                        className="mt-0.5 text-[var(--danger)]"
                         size={16}
                         strokeWidth={1.8}
                       />
@@ -151,7 +154,7 @@ export function ImportForm() {
                         {result.importedConversations} 条对话，{result.importedMessages} 条消息
                       </div>
                       {result.errors.length ? (
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-red-600 dark:text-red-300">
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-[var(--danger)]">
                           {result.errors.map((item) => (
                             <li key={item}>{item}</li>
                           ))}

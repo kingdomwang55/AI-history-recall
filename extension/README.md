@@ -10,14 +10,14 @@
 2. 开启 `Developer mode`
 3. 点击 `Load unpacked`
 4. 选择本项目的 `extension/` 目录
-5. 重新加载已经打开的 AI 对话页面
+5. 回到本地应用；扩展会自动接入已经打开的页面
 
 ## 使用
 
 1. 启动本地应用：`npm run dev`
-2. 打开某个 AI 对话详情页
-3. 点击扩展图标
-4. 点击 `Capture Current Conversation`
+2. 正常使用 ChatGPT、Gemini、DeepSeek 或通义千问
+3. 扩展会在对话 URL 稳定后延迟保存快照
+4. 需要立即检查四个平台时，在 `/capture` 点击“同步新增”
 
 如果本地应用启用了 `AIHR_API_TOKEN`，扩展也需要发送同一个 token。可在 `extension/config.js` 中设置：
 
@@ -43,7 +43,12 @@ http://localhost:3000/api/extension/discovery-run
 
 - 支持 ChatGPT、Gemini、DeepSeek、通义千问/Qwen
 - content script 常驻在支持的 AI 域名
-- 只在用户点击按钮后采集当前对话页
+- 打开具体对话 URL 后，随机延迟 20–45 秒采集当前快照；同 URL 10 分钟冷却
+- 默认每 6 小时执行一次后台增量发现，可在 `/capture` 暂停
+- 每个平台最多检查最近 50 条，连续 10 条已知 URL 后提前停止
+- 同一 `source_url` 后续新增消息会追加到既有会话并进入 FTS5
+- 已打开的会话内容变化后会低频预约补抓；10 分钟冷却期内的变化会排到冷却结束，不会直接丢弃
+- DeepSeek 的已知置顶记录不计入连续已知阈值，扫描会继续进入“昨天”等日期分组
 - 支持从当前平台历史页启动 `Start Full History Capture`
 - 支持启动 `Start All Platforms Capture`，依次打开四个平台历史页发现 URL，再低频分批采集
 - Qwen 历史列表没有稳定 `href`，扩展会在后台逐条低频点击可见历史行获取 `/chat/...` URL；每次点击都是短消息，有超时保护，并且发现阶段可停止、可显示进度，不会让全量任务长期卡在 `discovering_qwen`
@@ -52,7 +57,8 @@ http://localhost:3000/api/extension/discovery-run
 - 支持 `Clear Status` 清理旧任务状态
 - 默认每个对话页之间等待约 5.2-8.4 秒，历史滚动默认间隔 3.2 秒，避免高频请求
 - 采集阶段使用 `chrome.storage` 持久化队列，并用 `chrome.alarms` 逐条推进，降低 MV3 background worker 长任务被挂起的影响
-- 会把每个平台的 discovery stop reason 写入本地审计表，供 `/api/capture/audit` 检查
+- 会把 full / incremental discovery 分开写入本地审计，增量运行不覆盖全量耗尽证据
+- 不使用 `chrome.debugger`，不模拟系统鼠标或键盘输入
 - 不接云端，不调用第三方 API
 
 ## 全量采集建议
@@ -70,7 +76,7 @@ http://localhost:3000/api/extension/discovery-run
 
 停止任务不会删除队列。需要继续时点击 `Resume Queue`；需要重新开始新任务时点击 `Clear Status` 后再启动。
 
-修改 `manifest.json`、`background.js` 或 `content.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的本地应用页和平台页，无需刷新 `/capture`。content script 使用独立作用域，可安全重复注入；service worker 会读取本地审计并以 60 秒冷却自动恢复未完成平台。Qwen 优先通过当前登录页面的 session list API 低频分页，使用页面已有设备标识补齐官方公共参数，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用或返回空列表时回退 DOM 滚动。单页采集会等待消息渲染，避免页面刚打开时空采集。当前 build 应显示为 `extension v0.1.38 / no-debugger-input-20260711`。
+修改 `manifest.json`、`background.js`、`content.js` 或 `incremental-sync.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的本地应用页和平台页，无需刷新 `/capture`。Qwen 优先通过当前登录页面的 session list API 低频分页，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用时回退 DOM 滚动。当前 build 应显示为 `extension v0.1.42 / deepseek-pinned-groups-20260715`。
 
 ## 从应用页面启动
 
@@ -96,3 +102,4 @@ http://localhost:3000/*
 
 - 增加更强的平台专用历史列表选择器
 - 增加更细粒度的平台限速预设和失败重试策略
+- 对历史消息编辑、重新生成答案和分支对话增加冲突感知合并

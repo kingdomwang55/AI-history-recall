@@ -1,5 +1,6 @@
 import type { CapturePlatform } from "@/capture/types";
 import { getDb } from "@/lib/db";
+import { getPlatformSyncStates, type PlatformSyncState } from "@/services/platform-sync-service";
 
 export interface PlatformCaptureAudit {
   platform: CapturePlatform;
@@ -27,6 +28,7 @@ export interface PlatformCaptureAudit {
   } | null;
   status: "not_started" | "in_progress" | "has_failures" | "captured";
   hint: string;
+  syncState: PlatformSyncState;
 }
 
 export interface CaptureAudit {
@@ -87,9 +89,16 @@ type DiscoveryRunRow = {
   max_scrolls_reached: number;
   extension_version: string | null;
   extension_build_id: string | null;
+  discovery_mode: "full" | "incremental";
 };
 
-const requiredQwenDiscoveryBuild = "qwen-session-api-common-params-20260711";
+const acceptedQwenDiscoveryBuilds = new Set([
+  "qwen-session-api-common-params-20260711",
+  "incremental-sync-20260714",
+  "live-activity-sync-20260714",
+  "single-file-worker-20260715",
+  "deepseek-pinned-groups-20260715"
+]);
 
 function ensureAuditSchema() {
   const db = getDb();
@@ -106,6 +115,7 @@ function ensureAuditSchema() {
       max_items_reached INTEGER NOT NULL DEFAULT 0,
       max_scrolls_reached INTEGER NOT NULL DEFAULT 0,
       exhaustive INTEGER NOT NULL DEFAULT 0,
+      discovery_mode TEXT NOT NULL DEFAULT 'full',
       created_at TEXT NOT NULL
     );
 
@@ -221,6 +231,7 @@ function readinessNote(platforms: PlatformCaptureAudit[], totals: CaptureAudit["
 export function getCaptureAudit(): CaptureAudit {
   ensureAuditSchema();
   const db = getDb();
+  const syncStates = getPlatformSyncStates();
 
   const importRows = db
     .prepare(
@@ -273,6 +284,7 @@ export function getCaptureAudit(): CaptureAudit {
       SELECT *
       FROM capture_discovery_runs
       WHERE platform IN ('chatgpt', 'gemini', 'deepseek', 'qwen')
+        AND COALESCE(discovery_mode, 'full') = 'full'
       ORDER BY datetime(created_at) DESC
     `
     )
@@ -322,7 +334,7 @@ export function getCaptureAudit(): CaptureAudit {
             !latestDiscoveryRow.max_scrolls_reached;
           const minimumDiscoveryEvidence = Math.min(Math.max(importRow?.conversations ?? 1, 1), 5);
           const buildEvidenceCurrent =
-            platform !== "qwen" || latestDiscoveryRow.extension_build_id === requiredQwenDiscoveryBuild;
+            platform !== "qwen" || acceptedQwenDiscoveryBuilds.has(latestDiscoveryRow.extension_build_id ?? "");
           const evidenceStrong =
             exhausted &&
             buildEvidenceCurrent &&
@@ -355,7 +367,8 @@ export function getCaptureAudit(): CaptureAudit {
       targetCounts,
       latestDiscovery,
       status,
-      hint: hintFor(status, latestDiscovery)
+      hint: hintFor(status, latestDiscovery),
+      syncState: syncStates.find((state) => state.platform === platform)!
     };
   });
 

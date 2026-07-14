@@ -28,7 +28,7 @@ export function CopyButton({
     <button
       type="button"
       onClick={handleCopy}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] active:translate-y-px ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-[7px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] active:bg-[var(--bg-hover)] ${className}`}
     >
       <Icon size={15} strokeWidth={1.8} />
       <span>{copied ? copiedLabel : label}</span>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI History Recall Capture",
-  "version": "0.1.38",
+  "version": "0.1.42",
   "description": "Capture the current logged-in AI conversation into local AI History Recall.",
   "permissions": ["activeTab", "storage", "tabs", "windows", "alarms", "scripting"],
   "host_permissions": [
@@ -33,7 +33,7 @@
         "http://localhost:3000/*",
         "http://127.0.0.1:3000/*"
       ],
-      "js": ["content.js"],
+      "js": ["incremental-sync.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

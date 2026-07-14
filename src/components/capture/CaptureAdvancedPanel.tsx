@@ -299,7 +299,7 @@ export function CaptureAdvancedPanel({
               type="button"
               onClick={stopExtensionCapture}
               disabled={state !== "idle"}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-[7px] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[var(--danger-soft)] px-4 py-2.5 text-sm font-semibold text-[var(--danger)] transition hover:bg-[color-mix(in_srgb,var(--danger)_10%,white)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span>停止扩展任务</span>
             </button>
@@ -315,7 +315,7 @@ export function CaptureAdvancedPanel({
               type="button"
               onClick={clearExtensionStatus}
               disabled={state !== "idle"}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-[7px] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] bg-[var(--danger-soft)] px-4 py-2.5 text-sm font-semibold text-[var(--danger)] transition hover:bg-[color-mix(in_srgb,var(--danger)_10%,white)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span>清理扩展状态</span>
             </button>

@@ -8,127 +8,83 @@ export const dynamic = "force-dynamic";
 
 export default function HomePage() {
   const stats = getDashboardStats();
+  const maxPlatformCount = Math.max(...stats.platformDistribution.map((item) => item.count), 1);
 
   return (
-    <div className="space-y-8">
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
+    <div>
+      <header className="page-header">
         <div>
-          <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
-            把散落在各个平台的 AI 历史对话重新召回
-          </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)]">
-            AI 工具越用越多，真正的问题不是模型不够强，而是人的问题资产正在失忆。
-            AI History Recall 帮你把曾经解决过的问题、方案和代码沉淀回本地。
+          <h1 className="page-title">检索中枢</h1>
+          <p className="page-description">
+            召回散落在不同 AI 平台里的问题、方案和代码。所有数据仅保存在本机 SQLite。
           </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link
-              href="/search"
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--accent-strong)] active:translate-y-px"
-            >
-              <Search size={16} strokeWidth={1.8} />
-              <span>搜索历史</span>
-            </Link>
-            <Link
-              href="/import"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold transition hover:bg-[var(--surface-subtle)] active:translate-y-px"
-            >
-              <Upload size={16} strokeWidth={1.8} />
-              <span>导入文件</span>
-            </Link>
-            <Link
-              href="/capture"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-sm font-semibold transition hover:bg-[var(--surface-subtle)] active:translate-y-px"
-            >
-              <Bot size={16} strokeWidth={1.8} />
-              <span>浏览器采集</span>
-            </Link>
-          </div>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/import" className="inline-flex h-9 items-center gap-2 rounded-[5px] border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-medium hover:bg-[var(--surface-subtle)]">
+            <Upload size={15} strokeWidth={1.8} />导入文件
+          </Link>
+          <Link href="/capture" className="inline-flex h-9 items-center gap-2 rounded-[5px] border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-medium hover:bg-[var(--surface-subtle)]">
+            <Bot size={15} strokeWidth={1.8} />浏览器采集
+          </Link>
+        </div>
+      </header>
 
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5">
-          <div className="text-sm font-medium text-[var(--muted)]">本地数据概览</div>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-lg bg-[var(--surface-subtle)] p-4">
-              <Database size={18} strokeWidth={1.8} className="text-[var(--accent)]" />
-              <div className="mt-3 text-3xl font-semibold">{stats.conversationCount}</div>
-              <div className="text-xs text-[var(--muted)]">已导入对话</div>
-            </div>
-            <div className="rounded-lg bg-[var(--surface-subtle)] p-4">
-              <MessageSquareText
-                size={18}
-                strokeWidth={1.8}
-                className="text-[var(--accent)]"
-              />
-              <div className="mt-3 text-3xl font-semibold">{stats.messageCount}</div>
-              <div className="text-xs text-[var(--muted)]">已索引消息</div>
-            </div>
+      <section className="panel overflow-hidden">
+        <div className="grid divide-y divide-[var(--line)] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="flex items-center gap-4 px-5 py-4">
+            <Database size={19} className="text-[var(--accent)]" strokeWidth={1.8} />
+            <div><div className="text-2xl font-semibold tabular-nums">{stats.conversationCount}</div><div className="text-xs text-[var(--muted)]">已导入对话</div></div>
+          </div>
+          <div className="flex items-center gap-4 px-5 py-4">
+            <MessageSquareText size={19} className="text-[var(--accent)]" strokeWidth={1.8} />
+            <div><div className="text-2xl font-semibold tabular-nums">{stats.messageCount}</div><div className="text-xs text-[var(--muted)]">已索引消息</div></div>
+          </div>
+          <div className="flex items-center gap-4 px-5 py-4">
+            <span className="status-dot status-dot-success" />
+            <div><div className="font-semibold">本地 SQLite</div><div className="text-xs text-[var(--muted)]">存储与索引运行正常</div></div>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5">
-          <h2 className="text-lg font-semibold">来源平台分布</h2>
-          {stats.platformDistribution.length === 0 ? (
-            <div className="mt-4 rounded-lg border border-dashed border-[var(--line)] p-4 text-sm text-[var(--muted)]">
-              还没有导入数据。
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {stats.platformDistribution.map((item) => (
-                <div key={item.platform} className="flex items-center justify-between gap-3">
-                  <span className="text-sm">{platformLabel(item.platform)}</span>
-                  <span className="rounded-md bg-[var(--surface-subtle)] px-2 py-1 text-xs font-medium text-[var(--muted)]">
-                    {item.count}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      <Link href="/search" className="mt-4 flex min-h-14 items-center gap-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-5 text-[var(--foreground)] transition hover:border-[var(--border-strong)] hover:bg-[var(--bg-tertiary)]">
+        <Search size={19} strokeWidth={1.8} />
+        <div className="min-w-0 flex-1"><div className="font-semibold">搜索历史对话</div><div className="truncate text-xs text-[var(--muted)]">输入关键词，查找问题、结论、代码和方案</div></div>
+        <ArrowRight size={18} strokeWidth={1.8} />
+      </Link>
 
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold">最近导入</h2>
-            <Link
-              href="/search"
-              className="inline-flex items-center gap-1 text-sm font-medium text-[var(--accent-strong)]"
-            >
-              <span>查看全部</span>
-              <ArrowRight size={15} strokeWidth={1.8} />
-            </Link>
-          </div>
-
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="panel min-w-0 overflow-hidden">
+          <div className="panel-header"><h2 className="panel-title">最近导入</h2><Link href="/search" className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent-strong)]">查看全部<ArrowRight size={14} /></Link></div>
           {stats.recentConversations.length === 0 ? (
-            <div className="mt-4 rounded-lg border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">
-              从导入页添加第一个 TXT、Markdown 或 JSON 文件。
-            </div>
+            <div className="p-8 text-sm text-[var(--muted)]">从导入页添加第一个 TXT、Markdown 或 JSON 文件。</div>
           ) : (
-            <div className="mt-4 divide-y divide-[var(--line)]">
-              {stats.recentConversations.map((conversation) => (
-                <Link
-                  key={conversation.id}
-                  href={`/conversations/${conversation.id}`}
-                  className="block py-4 transition hover:bg-[var(--surface-subtle)] sm:-mx-3 sm:px-3"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
+            <div className="overflow-x-auto">
+              <div className="min-w-[640px]">
+                <div className="grid grid-cols-[120px_minmax(220px,1fr)_160px] border-b border-[var(--line)] bg-[var(--bg-tertiary)] px-4 py-2 text-[11px] font-medium text-[var(--muted)]"><span>平台</span><span>标题</span><span>导入时间</span></div>
+                {stats.recentConversations.map((conversation) => (
+                  <Link key={conversation.id} href={`/conversations/${conversation.id}`} className="grid grid-cols-[120px_minmax(220px,1fr)_160px] items-center border-b border-[var(--line)] px-4 py-3 text-sm last:border-0 hover:bg-[var(--surface-subtle)]">
                     <PlatformBadge platform={conversation.sourcePlatform} />
-                    <span className="text-xs text-[var(--muted)]">
-                      {formatDateTime(conversation.importedAt)}
-                    </span>
-                  </div>
-                  <div className="mt-2 font-medium">{conversation.title}</div>
-                  {conversation.rawFileName ? (
-                    <div className="mt-1 text-xs text-[var(--muted)]">
-                      {conversation.rawFileName}
-                    </div>
-                  ) : null}
-                </Link>
-              ))}
+                    <span className="truncate pr-5 font-medium">{conversation.title}</span>
+                    <span className="text-xs tabular-nums text-[var(--muted)]">{formatDateTime(conversation.importedAt)}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
           )}
-        </div>
-      </section>
+        </section>
+
+        <section className="panel overflow-hidden">
+          <div className="panel-header"><h2 className="panel-title">平台分布</h2><span className="text-xs text-[var(--muted)]">{stats.platformDistribution.length} 个来源</span></div>
+          <div className="space-y-4 p-5">
+            {stats.platformDistribution.map((item) => (
+              <div key={item.platform}>
+                <div className="mb-1.5 flex items-center justify-between text-sm"><span>{platformLabel(item.platform)}</span><span className="tabular-nums text-[var(--muted)]">{item.count}</span></div>
+                <div className="h-1.5 overflow-hidden rounded-sm bg-[var(--surface-subtle)]"><div className="h-full bg-[var(--accent)]" style={{ width: `${Math.max(6, (item.count / maxPlatformCount) * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

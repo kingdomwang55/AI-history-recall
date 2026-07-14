@@ -58,7 +58,7 @@ export function CapturePlanner() {
   const [extensionInstruction, setExtensionInstruction] = useState(defaultExtensionInstruction);
   const [extensionPlan, setExtensionPlan] = useState("");
   const [assistantMessage, setAssistantMessage] = useState(
-    "点击主按钮，系统会自动判断下一步，不需要记操作顺序。"
+    "新增对话会自动同步；需要立即检查时，点击“同步新增”。"
   );
   const [assistantSteps, setAssistantSteps] = useState<string[]>([]);
   const [autoPilotRetryTick, setAutoPilotRetryTick] = useState(0);
@@ -66,9 +66,7 @@ export function CapturePlanner() {
     audit,
     auditSummary,
     loadCaptureAudit,
-    refreshAudit,
-    weakEvidencePlatforms,
-    missingOrWeakPlatforms
+    refreshAudit
   } = useCaptureAudit({ setResult });
   const {
     jobInstruction,
@@ -111,10 +109,6 @@ export function CapturePlanner() {
     void loadCaptureAudit();
   }, [loadCaptureAudit]);
 
-  const handleExtensionReloadRequested = useCallback(() => {
-    setAssistantMessage("正在接入新版后台采集能力，完成后会自动续跑。");
-  }, []);
-
   const {
     expectedExtensionVersion,
     extensionReady,
@@ -127,8 +121,7 @@ export function CapturePlanner() {
   } = useExtensionBridge({
     onCompleted: handleExtensionCompleted,
     onFailed: handleExtensionFailed,
-    onStopped: handleExtensionStopped,
-    onReloadRequested: handleExtensionReloadRequested
+    onStopped: handleExtensionStopped
   });
 
   const tryAcquireAutoPilotLock = useCallback(() => {
@@ -416,19 +409,6 @@ export function CapturePlanner() {
     }
   }
 
-  async function createPlanFromInstruction(instructionText: string) {
-    const response = await apiFetch("/api/extension/plan", {
-      method: "POST",
-      headers: withApiToken({ "content-type": "application/json" }),
-      body: JSON.stringify({ instruction: instructionText })
-    });
-    const data = await response.json();
-    const nextPlan = data.plan ?? data;
-    setExtensionInstruction(instructionText);
-    setExtensionPlan(JSON.stringify(nextPlan, null, 2));
-    return { data, plan: nextPlan };
-  }
-
   async function runGuidedExtensionFlow() {
     setState("extension");
     setResult("");
@@ -473,28 +453,25 @@ export function CapturePlanner() {
         setExtensionRun(null);
       }
 
-      setAssistantMessage("正在读取本地审计，判断需要采集哪些平台...");
-      addStep("读取本地审计，判断哪些平台需要采集");
-      const { platforms, summary } = await loadCaptureAudit();
-      const weakPlatforms = weakEvidencePlatforms(platforms);
-      const targetPlatforms = summary?.readyForReview ? [] : weakPlatforms.length > 0 ? weakPlatforms : missingOrWeakPlatforms(platforms);
+      const targetPlatforms = (["chatgpt", "gemini", "deepseek", "qwen"] as Platform[]).filter(
+        (item) => audit.find((platform) => platform.platform === item)?.syncState.backgroundEnabled !== false
+      );
+      const nextPlan = {
+        mode: "incremental",
+        platforms: targetPlatforms,
+        maxItems: 50,
+        maxScrolls: 30,
+        delayMs: 3800,
+        stopAfterNoNewScrolls: 4,
+        stopAfterKnown: 10,
+        pageDelayMs: 5200,
+        pageJitterMs: 3200
+      };
 
-      if (summary?.readyForReview) {
-        addStep("审计已就绪，无需启动新采集");
-        setAssistantMessage("本地审计已经就绪。无需继续采集；可以人工抽查平台历史列表后确认完成。");
-        setResult("");
-        return;
-      }
-
-      const instructionText =
-        targetPlatforms.length > 0 && targetPlatforms.length < 4
-          ? `通过我当前已登录的 Chrome 扩展，低频重新发现并采集这些平台的全部历史对话：${targetPlatforms.join("、")}。`
-          : defaultExtensionInstruction;
-
-      setAssistantMessage(`将自动生成并下发采集计划：${targetPlatforms.length ? targetPlatforms.join("、") : "四个平台"}。`);
-      addStep(`生成采集计划：${targetPlatforms.length ? targetPlatforms.join("、") : "四个平台"}`);
-      const { plan: nextPlan } = await createPlanFromInstruction(instructionText);
-      addStep("下发计划给常驻 Chrome 扩展");
+      setAssistantMessage(`正在同步 ${targetPlatforms.join("、")} 的最新对话。`);
+      addStep("从每个平台最新记录开始扫描，最多检查 50 条");
+      addStep("连续遇到 10 条已知记录时提前停止");
+      addStep("下发增量同步计划给常驻 Chrome 扩展");
       const startResponse = await requestExtension<{ result?: { run?: ExtensionRunStatus } }>(
         {
           type: "AIHR_WEB_START_CAPTURE",
@@ -504,8 +481,8 @@ export function CapturePlanner() {
       );
       setExtensionRun(startResponse.result?.run ?? null);
       setResult("");
-      setAssistantMessage("采集任务已下发。它会在 Chrome 后台低频运行；页面会自动更新状态和审计结果。");
-      addStep("任务已启动，等待扩展低频采集");
+      setAssistantMessage("增量同步已在后台开始。发现已知记录会自动提前结束，不会重复导入。");
+      addStep("任务已启动，等待低频发现与合并");
     } catch (error) {
       const message = error instanceof Error ? error.message : "一键采集向导失败";
       addStep(`遇到问题：${message}`);
@@ -548,6 +525,26 @@ export function CapturePlanner() {
       setResult(JSON.stringify(response, null, 2));
     } catch (error) {
       setResult(error instanceof Error ? error.message : "读取扩展状态失败");
+    } finally {
+      setState("idle");
+    }
+  }
+
+  async function toggleBackgroundSync() {
+    setState("extension");
+    try {
+      const enabled = extensionRun?.backgroundSync?.enabled !== false;
+      await requestExtension({
+        type: "AIHR_WEB_SET_BACKGROUND_SYNC",
+        enabled: !enabled
+      });
+      const response = await requestExtension<{ run?: ExtensionRunStatus }>({
+        type: "AIHR_WEB_GET_STATUS"
+      });
+      setExtensionRun(response.run ?? null);
+      setAssistantMessage(!enabled ? "后台增量同步已开启。" : "后台增量同步已暂停，手动“同步新增”仍可使用。");
+    } catch (error) {
+      setAssistantMessage(error instanceof Error ? error.message : "更新后台同步设置失败");
     } finally {
       setState("idle");
     }
@@ -624,20 +621,18 @@ export function CapturePlanner() {
     if (!extensionReady) return "检查并连接扩展";
     if (extensionRun?.status === "running") return "查看后台采集进度";
     if (extensionRun?.status === "stopped") return "继续后台队列";
-    if (auditSummary?.readyForReview) return "重新检查状态";
-    if (weakEvidencePlatforms(audit).length > 0) return "重跑弱证据平台";
-    return "一键诊断并继续采集";
+    return "同步新增";
   }
 
   function topStatusLabel() {
     if (!extensionReady) return "等待扩展";
     if (isExtensionOutdated() && extensionRun?.status === "running") return "旧扩展运行中";
     if (isExtensionOutdated()) return "扩展待更新";
-    if (extensionRun?.status === "running") return "后台采集中";
-    if (extensionRun?.status === "completed") return "采集完成";
+    if (extensionRun?.status === "running") return "正在同步";
+    if (extensionRun?.status === "completed") return "同步完成";
     if (extensionRun?.status === "stopped") return "队列已暂停";
     if (extensionRun?.status === "failed") return "需要处理";
-    if (auditSummary?.readyForReview) return "本地可用";
+    if (extensionRun?.backgroundSync?.enabled) return "后台同步已开启";
     return "已连接";
   }
 
@@ -680,7 +675,7 @@ export function CapturePlanner() {
   });
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="capture-console grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <CaptureGuidePanel
         state={state}
         assistantMessage={assistantMessage}
@@ -688,6 +683,7 @@ export function CapturePlanner() {
         extensionReady={extensionReady}
         extensionMeta={extensionMeta}
         extensionRun={extensionRun}
+        audit={audit}
         auditSummary={auditSummary}
         extensionDirectoryPath={extensionDirectoryPath}
         expectedExtensionVersion={expectedExtensionVersion}
@@ -698,6 +694,7 @@ export function CapturePlanner() {
         currentCaptureLine={currentCaptureLine}
         isExtensionOutdated={isExtensionOutdated}
         runGuidedExtensionFlow={runGuidedExtensionFlow}
+        toggleBackgroundSync={toggleBackgroundSync}
         copyChromeExtensionsUrl={copyChromeExtensionsUrl}
         copyExtensionPath={copyExtensionPath}
       />

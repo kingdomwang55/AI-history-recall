@@ -1,6 +1,6 @@
 (() => {
-const EXTENSION_VERSION = "0.1.38";
-const EXTENSION_BUILD_ID = "no-debugger-input-20260711";
+const EXTENSION_VERSION = "0.1.42";
+const EXTENSION_BUILD_ID = "deepseek-pinned-groups-20260715";
 
 function clean(value) {
   return String(value || "")
@@ -104,6 +104,16 @@ function isConversationUrl(platform, url) {
   }
 }
 
+function deepSeekHistorySection(element) {
+  let node = element.parentElement;
+  for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+    const text = clean(node.textContent || "");
+    const match = text.match(/^(置顶|今天|昨天|7\s*天内|30\s*天内)/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 function discoverLinkedHistory(platform) {
   const origin = location.origin;
   const targets = [];
@@ -114,7 +124,12 @@ function discoverLinkedHistory(platform) {
     if (!isConversationUrl(platform, url)) return;
 
     const title = clean(element.innerText || element.textContent || element.getAttribute("aria-label") || "");
-    targets.push({ platform, url, title: title || url });
+    targets.push({
+      platform,
+      url,
+      title: title || url,
+      ignoreKnownStreak: platform === "deepseek" && deepSeekHistorySection(element) === "置顶"
+    });
   });
 
   return targets;
@@ -126,9 +141,11 @@ async function discoverChatGptHistoryViaApi(options = {}) {
   const targets = [];
   const scannedTitles = [];
   const seen = new Set();
+  const tracker = globalThis.AIHR_INCREMENTAL_SYNC.createTracker(options);
   let stopReason = "api_exhausted";
+  let shouldStop = false;
 
-  for (let offset = 0; offset < maxItems; offset += limit) {
+  for (let offset = 0; offset < maxItems && !shouldStop; offset += limit) {
     const response = await fetch(`/backend-api/conversations?offset=${offset}&limit=${limit}&order=updated`, {
       credentials: "include"
     });
@@ -146,29 +163,33 @@ async function discoverChatGptHistoryViaApi(options = {}) {
       seen.add(id);
       const title = clean(item.title || item.name || "");
       if (title) scannedTitles.push(title);
-      targets.push({
+      const target = {
         platform: "chatgpt",
         url: `${location.origin}/c/${id}`,
         title: title || `${location.origin}/c/${id}`
-      });
-      if (targets.length >= maxItems) {
-        stopReason = "max_items";
+      };
+      const decision = tracker.consider(target);
+      if (decision.include) targets.push(target);
+      if (decision.stop) {
+        stopReason = tracker.stats().stopReason || "max_items";
+        shouldStop = true;
         break;
       }
     }
 
-    if (targets.length >= maxItems || items.length < limit) break;
+    if (shouldStop || items.length < limit) break;
     await sleep(900 + Math.floor(Math.random() * 700));
   }
 
   return {
     ok: true,
     platform: "chatgpt",
-    targets: targets.slice(0, maxItems),
+    targets,
     stopReason,
     scrollsPerformed: 0,
     scannedTitles: [...new Set(scannedTitles)].slice(0, maxItems + 200),
-    exhaustive: stopReason === "api_exhausted"
+    exhaustive: options.mode !== "incremental" && stopReason === "api_exhausted",
+    incremental: tracker.stats()
   };
 }
 
@@ -668,20 +689,26 @@ async function requestQwenSessionApi(path, data) {
 }
 
 async function discoverQwenHistoryViaApi(options, runId) {
-  const maxItems = Math.min(Math.max(Number(options.maxItems) || 3000, 1), 3000);
   const targets = [];
   const seen = new Set();
+  const tracker = globalThis.AIHR_INCREMENTAL_SYNC.createTracker(options);
+  let shouldStop = false;
   const addItems = (items) => {
     for (const item of Array.isArray(items) ? items : []) {
       const sessionId = clean(item?.session_id);
       if (!sessionId || seen.has(sessionId)) continue;
       seen.add(sessionId);
-      targets.push({
+      const target = {
         platform: "qwen",
         title: clean(item?.title) || "Qwen conversation",
         url: `https://www.qianwen.com/chat/${sessionId}`
-      });
-      if (targets.length >= maxItems) break;
+      };
+      const decision = tracker.consider(target);
+      if (decision.include) targets.push(target);
+      if (decision.stop) {
+        shouldStop = true;
+        break;
+      }
     }
   };
 
@@ -698,7 +725,7 @@ async function discoverQwenHistoryViaApi(options, runId) {
 
   let nextToken = "";
   let page = 0;
-  do {
+  while (!shouldStop && page < 60) {
     const pageData = await requestQwenSessionApi("/api/v2/session/page/list", {
       limit: 50,
       next_token: nextToken,
@@ -718,8 +745,12 @@ async function discoverQwenHistoryViaApi(options, runId) {
       },
       runId
     );
-    if (nextToken && targets.length < maxItems) await sleep(1600 + Math.floor(Math.random() * 900));
-  } while (nextToken && targets.length < maxItems && page < 60);
+    if (nextToken && !shouldStop) await sleep(1600 + Math.floor(Math.random() * 900));
+    if (!nextToken) break;
+  }
+
+  const trackerStats = tracker.stats();
+  const stopReason = trackerStats.stopReason || (!nextToken ? "api_exhausted" : "max_items");
 
   return {
     ok: true,
@@ -728,10 +759,11 @@ async function discoverQwenHistoryViaApi(options, runId) {
     scannedTitles: targets.map((target) => target.title),
     failures: [],
     scrollsPerformed: page,
-    stopReason: targets.length >= maxItems ? "max_items" : "no_new_targets",
+    stopReason,
     exhausted: !nextToken,
-    exhaustive: !nextToken,
-    discoveryMethod: "session_api"
+    exhaustive: options.mode !== "incremental" && !nextToken,
+    discoveryMethod: "session_api",
+    incremental: trackerStats
   };
 }
 
@@ -775,6 +807,7 @@ async function discoverQwenHistoryInPage(options = {}) {
   const scannedTitles = [];
   const attemptedTitles = new Set();
   const seenUrls = new Set();
+  const tracker = globalThis.AIHR_INCREMENTAL_SYNC.createTracker(options);
   const knownTargetsByTitle =
     typeof options.knownTargetsByTitle === "object" && options.knownTargetsByTitle !== null
       ? options.knownTargetsByTitle
@@ -798,7 +831,12 @@ async function discoverQwenHistoryInPage(options = {}) {
       const knownTarget = knownTargetsByTitle[row.title];
       if (knownTarget?.url && !seenUrls.has(knownTarget.url)) {
         seenUrls.add(knownTarget.url);
-        targets.push({ platform: "qwen", url: knownTarget.url, title: row.title });
+        const decision = tracker.consider({ platform: "qwen", url: knownTarget.url, title: row.title });
+        if (decision.include) targets.push({ platform: "qwen", url: knownTarget.url, title: row.title });
+        if (decision.stop) {
+          stopReason = tracker.stats().stopReason || "known_streak";
+          break;
+        }
         continue;
       }
 
@@ -820,7 +858,9 @@ async function discoverQwenHistoryInPage(options = {}) {
         }
         if (!seenUrls.has(clicked.target.url)) {
           seenUrls.add(clicked.target.url);
-          targets.push(clicked.target);
+          const decision = tracker.consider(clicked.target);
+          if (decision.include) targets.push(clicked.target);
+          if (decision.stop) stopReason = tracker.stats().stopReason || "known_streak";
         }
         if (options.restoreAfterClick === true) {
           await navigateBackWithSignal();
@@ -835,7 +875,10 @@ async function discoverQwenHistoryInPage(options = {}) {
       }
 
       await sleep(delayMs + Math.floor(Math.random() * Math.max(400, delayMs * 0.5)));
+      if (tracker.stats().stopped) break;
     }
+
+    if (tracker.stats().stopped) break;
 
     noNewScrolls = scannedTitles.length === scannedBefore ? noNewScrolls + 1 : 0;
     if (targets.length >= maxItems) {
@@ -890,7 +933,8 @@ async function discoverQwenHistoryInPage(options = {}) {
     scannedTitles,
     stopReason,
     scrollsPerformed,
-    exhaustive: stopReason === "no_new_targets" && reachedEnd && failures.length === 0
+    exhaustive: options.mode !== "incremental" && stopReason === "no_new_targets" && reachedEnd && failures.length === 0,
+    incremental: tracker.stats()
   };
 }
 
@@ -915,6 +959,7 @@ async function discoverHistory(options = {}) {
   const stopAfterNoNewScrolls = Math.min(Math.max(Number(options.stopAfterNoNewScrolls) || 8, 2), 30);
   const seen = new Set();
   const targets = [];
+  const tracker = globalThis.AIHR_INCREMENTAL_SYNC.createTracker(options);
   let noNewScrolls = 0;
   let stopReason = "max_scrolls";
   let scrollsPerformed = 0;
@@ -927,9 +972,15 @@ async function discoverHistory(options = {}) {
     for (const target of discovered) {
       if (seen.has(target.url)) continue;
       seen.add(target.url);
-      targets.push(target);
-      if (targets.length >= maxItems) break;
+      const decision = tracker.consider(target);
+      if (decision.include) targets.push(target);
+      if (decision.stop) {
+        stopReason = tracker.stats().stopReason || "max_items";
+        break;
+      }
     }
+
+    if (tracker.stats().stopped) break;
 
     if (platform === "qwen" && options.enableClickDiscovery === true && targets.length < maxItems) {
       for (const target of await clickDiscoverQwenVisibleRows(seen)) {
@@ -961,7 +1012,8 @@ async function discoverHistory(options = {}) {
       platform === "qwen"
         ? discoverVisibleHistoryTitles()
         : targets.map((target) => target.title).filter(Boolean),
-    exhaustive: stopReason === "no_new_targets"
+    exhaustive: options.mode !== "incremental" && stopReason === "no_new_targets",
+    incremental: tracker.stats()
   };
 }
 
@@ -1000,6 +1052,35 @@ function sendRuntimeMessage(message) {
       resolve(response);
     });
   });
+}
+
+function installConversationActivityObserver() {
+  const platform = platformFromUrl(location.href);
+  if (!platform || !document.body) return;
+
+  let signalTimer = null;
+  const scheduleSignal = () => {
+    if (signalTimer !== null) return;
+    signalTimer = window.setTimeout(() => {
+      signalTimer = null;
+      const currentPlatform = platformFromUrl(location.href);
+      if (!currentPlatform || !isConversationUrl(currentPlatform, location.href)) return;
+      sendRuntimeMessage({ type: "AIHR_CONVERSATION_ACTIVITY", url: location.href }).catch(() => undefined);
+    }, 45000);
+  };
+
+  window.__AI_HISTORY_RECALL_ACTIVITY_OBSERVER__?.disconnect?.();
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some((mutation) => mutation.type === "childList" || mutation.type === "characterData")) {
+      scheduleSignal();
+    }
+  });
+  observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+  window.__AI_HISTORY_RECALL_ACTIVITY_OBSERVER__ = observer;
+}
+
+if (!isLocalAppUrl(location.href)) {
+  installConversationActivityObserver();
 }
 
 if (isLocalAppUrl(location.href)) {
@@ -1092,16 +1173,30 @@ if (isLocalAppUrl(location.href)) {
         );
     }
 
+    if (message.type === "AIHR_WEB_SET_BACKGROUND_SYNC") {
+      sendRuntimeMessage({ type: "AIHR_SET_BACKGROUND_SYNC", enabled: message.enabled !== false })
+        .then((result) => respond({ type: "AIHR_WEB_BACKGROUND_SYNC_RESULT", ok: true, result }))
+        .catch((error) =>
+          respond({
+            type: "AIHR_WEB_BACKGROUND_SYNC_RESULT",
+            ok: false,
+            error: error instanceof Error ? error.message : "Background sync update failed."
+          })
+        );
+    }
+
     if (message.type === "AIHR_WEB_START_CAPTURE") {
       const plan = message.plan || {};
       const runtimeMessage = {
         type: "AIHR_START_ALL_PLATFORMS_CAPTURE",
         sourceTabId: undefined,
         options: {
+          mode: plan.mode,
           maxItems: plan.maxItems,
           maxScrolls: plan.maxScrolls,
           delayMs: plan.delayMs,
           stopAfterNoNewScrolls: plan.stopAfterNoNewScrolls,
+          stopAfterKnown: plan.stopAfterKnown,
           pageDelayMs: plan.pageDelayMs,
           pageJitterMs: plan.pageJitterMs,
           platforms: plan.platforms

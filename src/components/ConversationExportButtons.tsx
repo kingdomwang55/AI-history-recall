@@ -56,7 +56,7 @@ export function ConversationExportButtons({
         type="button"
         onClick={() => exportConversation("markdown")}
         disabled={pending !== null}
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-2 rounded-[7px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Download size={15} strokeWidth={1.8} />
         <span>{pending === "markdown" ? "导出中" : "Markdown"}</span>
@@ -65,12 +65,12 @@ export function ConversationExportButtons({
         type="button"
         onClick={() => exportConversation("json")}
         disabled={pending !== null}
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-2 rounded-[7px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Download size={15} strokeWidth={1.8} />
         <span>{pending === "json" ? "导出中" : "JSON"}</span>
       </button>
-      {error ? <span className="text-xs text-red-600">{error}</span> : null}
+      {error ? <span className="text-xs text-[var(--danger)]">{error}</span> : null}
     </div>
   );
 }

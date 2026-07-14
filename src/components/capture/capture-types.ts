@@ -51,6 +51,21 @@ export type PlatformAudit = {
   } | null;
   status: string;
   hint: string;
+  syncState: {
+    platform: Platform;
+    lastSyncedAt: string | null;
+    lastDiscoveredAt: string | null;
+    lastSeenUrl: string | null;
+    lastSuccessAt: string | null;
+    lastError: string | null;
+    status: "idle" | "syncing" | "error" | "paused";
+    lastNewConversations: number;
+    lastNewMessages: number;
+    consecutiveFailures: number;
+    backoffUntil: string | null;
+    backgroundEnabled: boolean;
+    updatedAt: string;
+  };
   targetCounts: {
     pending: number;
     running: number;
@@ -118,5 +133,13 @@ export type ExtensionRunStatus = {
   };
   failures?: Array<{ platform?: string; url?: string; title?: string; error: string }>;
   discoveries?: Array<{ platform: Platform; targets?: unknown[]; stopReason?: string }>;
+  connectedPlatforms?: Platform[];
+  backgroundSync?: {
+    enabled: boolean;
+    intervalMinutes: number;
+    scanLimit: number;
+    stopAfterKnown: number;
+    nextAt: string | null;
+  };
   error?: string;
 };

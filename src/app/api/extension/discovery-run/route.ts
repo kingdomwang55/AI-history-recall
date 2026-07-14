@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { requireApiToken } from "@/lib/api-auth";
 import { getDb, nowIso } from "@/lib/db";
 import type { CapturePlatform } from "@/capture/types";
+import { markPlatformSyncDiscovered } from "@/services/platform-sync-service";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,8 @@ export async function POST(request: Request) {
     exhaustive?: unknown;
     extensionVersion?: unknown;
     extensionBuildId?: unknown;
+    lastSeenUrl?: unknown;
+    mode?: unknown;
   };
 
   const platform = raw.platform;
@@ -43,8 +46,9 @@ export async function POST(request: Request) {
       id, job_id, platform, targets_found, failures_count, scanned_titles_count,
       stop_reason, scrolls_performed, max_items_reached, max_scrolls_reached,
       exhaustive, extension_version, extension_build_id, created_at
+      , discovery_mode
     )
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   ).run(
     randomUUID(),
@@ -59,7 +63,13 @@ export async function POST(request: Request) {
     raw.exhaustive ? 1 : 0,
     typeof raw.extensionVersion === "string" ? raw.extensionVersion : null,
     typeof raw.extensionBuildId === "string" ? raw.extensionBuildId : null,
-    nowIso()
+    nowIso(),
+    raw.mode === "incremental" ? "incremental" : "full"
+  );
+
+  markPlatformSyncDiscovered(
+    platform as CapturePlatform,
+    typeof raw.lastSeenUrl === "string" ? raw.lastSeenUrl : null
   );
 
   return Response.json({ ok: true });

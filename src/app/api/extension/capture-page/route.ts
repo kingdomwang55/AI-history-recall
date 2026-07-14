@@ -1,6 +1,8 @@
 import { inferPlatformFromUrl } from "@/capture/platforms";
+import type { CapturePlatform } from "@/capture/types";
 import { requireApiToken } from "@/lib/api-auth";
 import { importParsedConversations } from "@/services/import-service";
+import { markPlatformSyncSucceeded } from "@/services/platform-sync-service";
 import type { MessageRole, ParsedConversation } from "@/types/conversation";
 
 export const runtime = "nodejs";
@@ -66,6 +68,12 @@ export async function POST(request: Request) {
     `chrome-extension-${new Date().toISOString()}.json`,
     "chrome_extension"
   );
+
+  markPlatformSyncSucceeded(platform as CapturePlatform, {
+    newConversations: imported.importedConversations,
+    newMessages: imported.importedMessages,
+    lastSeenUrl: url
+  });
 
   return Response.json({ imported });
 }
