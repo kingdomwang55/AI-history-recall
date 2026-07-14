@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
+import { ConversationExportButtons } from "@/components/ConversationExportButtons";
 import { ConversationManagementPanel } from "@/components/ConversationManagementPanel";
 import { CopyButton } from "@/components/CopyButton";
 import { MessageList } from "@/components/MessageList";
@@ -58,11 +59,13 @@ export default async function ConversationPage({
                   </p>
                 ) : null}
               </div>
-              <CopyButton
-                text={buildConversationText(conversation.title, conversation.messages)}
-                label="复制整段对话"
-                className="shrink-0"
-              />
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <CopyButton
+                  text={buildConversationText(conversation.title, conversation.messages)}
+                  label="复制整段对话"
+                />
+                <ConversationExportButtons conversationId={conversation.id} title={conversation.title} />
+              </div>
             </div>
 
             {conversation.tags.length ? (
