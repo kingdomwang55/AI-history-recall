@@ -1,4 +1,3 @@
-import os from "node:os";
 import { capturePlatformConfigs } from "@/capture/platforms";
 import type { CapturePlatform } from "@/capture/types";
 
@@ -84,7 +83,7 @@ function defaultChromePath() {
 }
 
 function defaultUserDataDir() {
-  return `${os.homedir()}/.ai-history-recall-chrome`;
+  return `${process.env.HOME || "."}/.ai-history-recall-chrome`;
 }
 
 async function fetchJson<T>(url: string, timeoutMs = 2500, init?: RequestInit): Promise<T> {
