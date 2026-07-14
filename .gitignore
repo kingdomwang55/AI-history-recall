@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+*.tsbuildinfo
+.idea/
+data/*.sqlite
+data/*.sqlite-*
+data/*.json
+extension/config.js

@@ -1,0 +1,61 @@
+export type MessageRole = "user" | "assistant" | "system" | "unknown";
+
+export interface Conversation {
+  id: string;
+  sourcePlatform: string;
+  title: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  importedAt: string;
+  tags: string[];
+  summary: string | null;
+  rawFileName: string | null;
+  sourceUrl: string | null;
+  note: string;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  createdAt: string | null;
+  orderIndex: number;
+}
+
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[];
+}
+
+export interface ParsedConversation {
+  sourcePlatform: string;
+  title: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  tags?: string[];
+  summary?: string | null;
+  sourceUrl?: string | null;
+  messages: ParsedMessage[];
+}
+
+export interface ParsedMessage {
+  role: MessageRole;
+  content: string;
+  createdAt?: string | null;
+}
+
+export interface ImportFileInput {
+  fileName: string;
+  mimeType?: string;
+  content: string;
+}
+
+export interface ImportResult {
+  ok: boolean;
+  fileName: string;
+  adapter: string | null;
+  importedConversations: number;
+  importedMessages: number;
+  conversationIds: string[];
+  errors: string[];
+}

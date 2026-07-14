@@ -1,0 +1,9 @@
+AI 编程报错解决
+
+User: Next.js API route 里使用 better-sqlite3 报错，提示不能在 Edge Runtime 使用。
+
+Assistant: 在 route.ts 中添加 export const runtime = "nodejs";。同时在 next.config.mjs 里把 better-sqlite3 放到 serverExternalPackages。
+
+User: 这样会影响本地优先存储吗？
+
+Assistant: 不会。它只是告诉 Next.js 这段代码在 Node.js 运行时执行，SQLite 数据仍然保存在本机文件里。

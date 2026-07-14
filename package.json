@@ -1,0 +1,33 @@
+{
+  "name": "ai-history-recall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "node --test test/*.test.mjs",
+    "db:reset": "rm -f data/ai-history-recall.sqlite data/ai-history-recall.sqlite-*"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "lucide-react": "1.23.0",
+    "next": "16.2.10",
+    "playwright-core": "1.61.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.2",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "4.3.2",
+    "typescript": "^5.9.3"
+  }
+}

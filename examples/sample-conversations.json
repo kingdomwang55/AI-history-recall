@@ -1,0 +1,19 @@
+{
+  "conversations": [
+    {
+      "source_platform": "generic_json",
+      "title": "公众号选题沉淀",
+      "tags": ["公众号选题", "产品想法"],
+      "messages": [
+        {
+          "role": "user",
+          "content": "我想写一篇关于 AI 历史对话召回的文章，核心痛点怎么表达？"
+        },
+        {
+          "role": "assistant",
+          "content": "可以把痛点定义为问题资产失忆。用户并不是没有问过，也不是没有得到过答案，而是答案散落在不同平台的历史列表里。"
+        }
+      ]
+    }
+  ]
+}
