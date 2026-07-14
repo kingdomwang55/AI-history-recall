@@ -220,3 +220,27 @@ export function updateConversationMetadata(
 
   return transaction();
 }
+
+export function deleteConversation(conversationId: string) {
+  const db = getDb();
+
+  const transaction = db.transaction(() => {
+    const existing = db
+      .prepare("SELECT id FROM conversations WHERE id = ?")
+      .get(conversationId);
+
+    if (!existing) {
+      return { deleted: false };
+    }
+
+    db.prepare("DELETE FROM search_index WHERE conversation_id = ?").run(conversationId);
+    db.prepare("DELETE FROM conversation_tags WHERE conversation_id = ?").run(conversationId);
+    db.prepare("DELETE FROM notes WHERE conversation_id = ?").run(conversationId);
+    db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(conversationId);
+    db.prepare("DELETE FROM conversations WHERE id = ?").run(conversationId);
+
+    return { deleted: true };
+  });
+
+  return transaction();
+}

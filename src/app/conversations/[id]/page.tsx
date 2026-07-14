@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
+import { ConversationManagementPanel } from "@/components/ConversationManagementPanel";
 import { CopyButton } from "@/components/CopyButton";
 import { MessageList } from "@/components/MessageList";
 import { MetadataEditor } from "@/components/MetadataEditor";
@@ -89,6 +90,8 @@ export default async function ConversationPage({
             initialTags={conversation.tags}
             initialNote={conversation.note}
           />
+
+          <ConversationManagementPanel conversationId={conversation.id} />
 
           <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5 text-sm text-[var(--muted)]">
             <h2 className="text-base font-semibold text-[var(--foreground)]">对话信息</h2>
