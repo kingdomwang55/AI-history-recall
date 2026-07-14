@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, ClipboardList, MonitorCog, Play, RefreshCw, Route, WandSparkles } from "lucide-react";
+import type {
+  ApiState,
+  CaptureAuditSummary,
+  ChromeStatus,
+  ExtensionRunStatus,
+  JobSummary,
+  Platform,
+  PlatformAudit,
+  PlatformPreflight
+} from "@/components/capture/capture-types";
+import { extensionNeedsUpdate, useExtensionBridge } from "@/components/capture/useExtensionBridge";
 import { withApiToken } from "@/lib/client-api";
-
-type ApiState = "idle" | "planning" | "capturing" | "runningAll" | "agent" | "chrome" | "extension";
-type Platform = "chatgpt" | "gemini" | "deepseek" | "qwen";
 
 const defaultInstruction = `抓取这些历史对话并导入本地：
 https://chatgpt.com/c/...
@@ -19,8 +27,6 @@ const defaultExtensionInstruction =
   "通过我当前已登录的 Chrome 扩展，低频抓取 ChatGPT、Gemini、DeepSeek、通义千问的全部历史对话。";
 const extensionDirectoryPath = process.env.NEXT_PUBLIC_AIHR_EXTENSION_PATH || "extension";
 const chromeExtensionsUrl = "chrome://extensions/";
-const expectedExtensionVersion = "0.1.38";
-const expectedExtensionBuildId = "no-debugger-input-20260711";
 const autoPilotLockKey = "aihr:capture:auto-pilot-lock";
 const tabInstanceKey = "aihr:capture:tab-instance";
 const autoPilotLockTtlMs = 120000;
@@ -41,140 +47,8 @@ function getTabInstanceId() {
   return id;
 }
 
-function extensionNeedsUpdate(version?: string, buildId?: string) {
-  if (!version) return false;
-  const current = version.split(".").map((part) => Number(part) || 0);
-  const expected = expectedExtensionVersion.split(".").map((part) => Number(part) || 0);
-  for (let index = 0; index < Math.max(current.length, expected.length); index += 1) {
-    const difference = (current[index] || 0) - (expected[index] || 0);
-    if (difference < 0) return true;
-    if (difference > 0) return false;
-  }
-  return buildId !== expectedExtensionBuildId;
-}
-
-type JobSummary = {
-  id: string;
-  instruction: string;
-  status: string;
-  updatedAt: string;
-  counts: {
-    pending: number;
-    running: number;
-    succeeded: number;
-    failed: number;
-  };
-  totalTargets: number;
-};
-
-type ChromeStatus = {
-  ok: boolean;
-  endpoint: string;
-  browser: string | null;
-  error: string | null;
-};
-
-type PlatformPreflight = {
-  platform: Platform;
-  open: boolean;
-  title: string | null;
-  url: string | null;
-  likelyLoggedIn: boolean | null;
-  hint: string;
-};
-
-type PlatformAudit = {
-  platform: Platform;
-  importedConversations: number;
-  importedMessages: number;
-  indexedMessages: number;
-  latestImportedAt: string | null;
-  latestDiscovery: {
-    createdAt: string;
-    targetsFound: number;
-    failuresCount: number;
-    scannedTitlesCount: number;
-    stopReason: string | null;
-    scrollsPerformed: number | null;
-    exhaustive: boolean;
-    exhausted: boolean;
-    evidenceStrong: boolean;
-  } | null;
-  status: string;
-  hint: string;
-  targetCounts: {
-    pending: number;
-    running: number;
-    succeeded: number;
-    failed: number;
-  };
-};
-
-type CaptureAuditSummary = {
-  locallyConsistent: boolean;
-  readyForReview: boolean;
-  nextAction: string;
-  completionNote: string;
-  totals: {
-    importedConversations: number;
-    importedMessages: number;
-    indexedMessages: number;
-    pendingTargets: number;
-    failedTargets: number;
-  };
-};
-
-type ExtensionRunStatus = {
-  status?: string;
-  phase?: string;
-  extensionVersion?: string;
-  extensionBuildId?: string;
-  platform?: string;
-  platforms?: Platform[];
-  totalTargets?: number;
-  processed?: number;
-  nextIndex?: number;
-  processing?: boolean;
-  queue?: unknown[];
-  queuePlatformCounts?: Partial<Record<Platform | "unknown", number>>;
-  currentTarget?: {
-    platform?: Platform;
-    title?: string;
-    url?: string;
-    index?: number;
-    total?: number;
-  } | null;
-  importedConversations?: number;
-  importedMessages?: number;
-  skippedDuplicates?: number;
-  discoveryProgress?: {
-    platform?: Platform;
-    phase?: string;
-    scrollIndex?: number;
-    maxScrolls?: number;
-    currentTitle?: string;
-    platformIndex?: number;
-    totalPlatforms?: number;
-    targetsFound?: number;
-    scannedTitles?: number;
-    failures?: number;
-    scrollBefore?: number;
-    scrollAfter?: number;
-    scrollTarget?: number;
-    scrollMoved?: boolean;
-    scrollAtEnd?: boolean;
-    stopReason?: string;
-    error?: string;
-    updatedAt?: string;
-  };
-  failures?: Array<{ platform?: string; url?: string; title?: string; error: string }>;
-  discoveries?: Array<{ platform: Platform; targets?: unknown[]; stopReason?: string }>;
-  error?: string;
-};
-
 export function CapturePlanner() {
   const autoPilotStartedRef = useRef(false);
-  const extensionReloadRequestedRef = useRef(false);
   const tabInstanceIdRef = useRef<string>(getTabInstanceId());
   const runGuidedExtensionFlowRef = useRef<() => void>(() => undefined);
   const [instruction, setInstruction] = useState(defaultInstruction);
@@ -198,42 +72,48 @@ export function CapturePlanner() {
   const [auditSummary, setAuditSummary] = useState<CaptureAuditSummary | null>(null);
   const [extensionInstruction, setExtensionInstruction] = useState(defaultExtensionInstruction);
   const [extensionPlan, setExtensionPlan] = useState("");
-  const [extensionReady, setExtensionReady] = useState(false);
-  const [extensionMeta, setExtensionMeta] = useState<{ version?: string; buildId?: string }>({});
-  const [extensionCheckedAt, setExtensionCheckedAt] = useState<string | null>(null);
-  const [extensionBridgeError, setExtensionBridgeError] = useState<string | null>(null);
-  const [extensionRun, setExtensionRun] = useState<ExtensionRunStatus | null>(null);
   const [assistantMessage, setAssistantMessage] = useState(
     "点击主按钮，系统会自动判断下一步，不需要记操作顺序。"
   );
   const [assistantSteps, setAssistantSteps] = useState<string[]>([]);
   const [autoPilotRetryTick, setAutoPilotRetryTick] = useState(0);
 
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.source !== "aihr-extension") return;
-      if (event.data.type === "AIHR_EXTENSION_READY") {
-        setExtensionReady(true);
-        setExtensionMeta({ version: event.data.version, buildId: event.data.buildId });
-        setExtensionBridgeError(null);
-        setExtensionCheckedAt(new Date().toISOString());
-      }
-      if (event.data.type === "AIHR_WEB_STATUS_RESULT") {
-        setExtensionReady(true);
-        setExtensionMeta({ version: event.data.version, buildId: event.data.buildId });
-        setExtensionRun(event.data.run ?? null);
-        setExtensionBridgeError(null);
-        setExtensionCheckedAt(new Date().toISOString());
-      }
-    };
-
-    window.addEventListener("message", onMessage);
-    window.postMessage(
-      { source: "aihr-web", type: "AIHR_WEB_GET_STATUS", requestId: crypto.randomUUID() },
-      window.location.origin
-    );
-    return () => window.removeEventListener("message", onMessage);
+  const handleExtensionCompleted = useCallback(() => {
+    autoPilotStartedRef.current = false;
+    setAssistantMessage("后台采集已完成，正在自动更新审计结果。");
+    void loadCaptureAudit();
   }, []);
+
+  const handleExtensionFailed = useCallback(() => {
+    autoPilotStartedRef.current = false;
+    setAssistantMessage("后台采集失败，已自动读取状态；可以展开高级调试看错误详情。");
+    void loadCaptureAudit();
+  }, []);
+
+  const handleExtensionStopped = useCallback(() => {
+    setAssistantMessage("后台采集已停止。再次点击一键向导会自动继续可恢复队列或重新规划。");
+    void loadCaptureAudit();
+  }, []);
+
+  const handleExtensionReloadRequested = useCallback(() => {
+    setAssistantMessage("正在接入新版后台采集能力，完成后会自动续跑。");
+  }, []);
+
+  const {
+    expectedExtensionVersion,
+    extensionReady,
+    extensionMeta,
+    extensionCheckedAt,
+    extensionBridgeError,
+    extensionRun,
+    setExtensionRun,
+    requestExtension
+  } = useExtensionBridge({
+    onCompleted: handleExtensionCompleted,
+    onFailed: handleExtensionFailed,
+    onStopped: handleExtensionStopped,
+    onReloadRequested: handleExtensionReloadRequested
+  });
 
   useEffect(() => {
     apiFetch("/api/capture/audit")
@@ -244,48 +124,6 @@ export function CapturePlanner() {
       })
       .catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    if (!extensionReady) return;
-
-    let disposed = false;
-    const timer = window.setInterval(() => {
-      requestExtension<{ run?: ExtensionRunStatus }>(
-        {
-          type: "AIHR_WEB_GET_STATUS"
-        },
-        4000
-      )
-        .then((response) => {
-          if (disposed) return;
-          const run = response.run ?? null;
-          setExtensionRun(run);
-
-          if (run?.status === "completed") {
-            autoPilotStartedRef.current = false;
-            setAssistantMessage("后台采集已完成，正在自动更新审计结果。");
-            void loadCaptureAudit();
-          }
-
-          if (run?.status === "failed") {
-            autoPilotStartedRef.current = false;
-            setAssistantMessage("后台采集失败，已自动读取状态；可以展开高级调试看错误详情。");
-            void loadCaptureAudit();
-          }
-
-          if (run?.status === "stopped") {
-            setAssistantMessage("后台采集已停止。再次点击一键向导会自动继续可恢复队列或重新规划。");
-            void loadCaptureAudit();
-          }
-        })
-        .catch(() => undefined);
-    }, 5000);
-
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [extensionReady]);
 
   useEffect(() => {
     if (autoPilotStartedRef.current) return;
@@ -318,26 +156,6 @@ export function CapturePlanner() {
     state
   ]);
 
-  useEffect(() => {
-    const outdated = extensionReady && extensionNeedsUpdate(extensionMeta.version, extensionMeta.buildId);
-    if (!outdated || extensionRun?.status === "running") return;
-
-    const reconnect = () => window.location.reload();
-    window.addEventListener("focus", reconnect, { once: true });
-    return () => window.removeEventListener("focus", reconnect);
-  }, [extensionMeta.buildId, extensionMeta.version, extensionReady, extensionRun?.status]);
-
-  useEffect(() => {
-    const outdated = extensionReady && extensionNeedsUpdate(extensionMeta.version, extensionMeta.buildId);
-    if (!outdated || extensionRun?.status === "running" || extensionReloadRequestedRef.current) return;
-
-    extensionReloadRequestedRef.current = true;
-    setAssistantMessage("正在接入新版后台采集能力，完成后会自动续跑。");
-    requestExtension({ type: "AIHR_WEB_RELOAD_EXTENSION" }, 5000)
-      .catch(() => undefined)
-      .finally(() => window.setTimeout(() => window.location.reload(), 1200));
-  }, [extensionMeta.buildId, extensionMeta.version, extensionReady, extensionRun?.status]);
-
   function tryAcquireAutoPilotLock() {
     const now = Date.now();
     try {
@@ -354,43 +172,6 @@ export function CapturePlanner() {
     } catch {
       return true;
     }
-  }
-
-  function requestExtension<T>(message: Record<string, unknown>, timeoutMs = 5000): Promise<T> {
-    const requestId = crypto.randomUUID();
-
-    return new Promise((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        window.removeEventListener("message", onMessage);
-        const messageText =
-          "没有收到扩展响应。下一步：打开 chrome://extensions，确认 AI History Recall Capture 已启用；如果刚安装或更新过扩展，点 Reload 后回到本页。";
-        setExtensionReady(false);
-        setExtensionBridgeError(messageText);
-        setExtensionCheckedAt(new Date().toISOString());
-        reject(new Error(messageText));
-      }, timeoutMs);
-
-      const onMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin || event.data?.source !== "aihr-extension") return;
-        if (event.data.requestId !== requestId) return;
-        window.clearTimeout(timer);
-        window.removeEventListener("message", onMessage);
-        if (event.data.ok === false) {
-          setExtensionBridgeError(event.data.error || "扩展执行失败");
-          setExtensionCheckedAt(new Date().toISOString());
-          reject(new Error(event.data.error || "扩展执行失败"));
-          return;
-        }
-        setExtensionReady(true);
-        setExtensionMeta({ version: event.data.version, buildId: event.data.buildId });
-        setExtensionBridgeError(null);
-        setExtensionCheckedAt(new Date().toISOString());
-        resolve(event.data as T);
-      };
-
-      window.addEventListener("message", onMessage);
-      window.postMessage({ source: "aihr-web", requestId, ...message }, window.location.origin);
-    });
   }
 
   async function checkChrome() {
@@ -796,7 +577,6 @@ export function CapturePlanner() {
         },
         8000
       );
-      setExtensionReady(true);
       setExtensionRun(response.result?.run ?? null);
       setResult(JSON.stringify(response, null, 2));
     } catch (error) {
@@ -813,7 +593,6 @@ export function CapturePlanner() {
       const response = await requestExtension<{ run?: ExtensionRunStatus }>({
         type: "AIHR_WEB_GET_STATUS"
       });
-      setExtensionReady(true);
       setExtensionRun(response.run ?? null);
       setResult(JSON.stringify(response, null, 2));
     } catch (error) {
@@ -864,7 +643,6 @@ export function CapturePlanner() {
       const response = await requestExtension<{ result?: { run?: ExtensionRunStatus } }>({
         type: "AIHR_WEB_RESUME_CAPTURE"
       });
-      setExtensionReady(true);
       setExtensionRun(response.result?.run ?? null);
       setResult(JSON.stringify(response, null, 2));
     } catch (error) {
@@ -881,7 +659,6 @@ export function CapturePlanner() {
       const response = await requestExtension({
         type: "AIHR_WEB_CLEAR_STATUS"
       });
-      setExtensionReady(true);
       setExtensionRun(null);
       setResult(JSON.stringify(response, null, 2));
     } catch (error) {
