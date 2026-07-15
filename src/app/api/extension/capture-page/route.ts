@@ -1,5 +1,6 @@
 import { inferPlatformFromUrl } from "@/capture/platforms";
 import type { CapturePlatform } from "@/capture/types";
+import { isAllowedPlatformUrl, readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { importParsedConversations } from "@/services/import-service";
 import { markPlatformSyncSucceeded } from "@/services/platform-sync-service";
@@ -17,7 +18,8 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
 
   if (typeof body !== "object" || body === null) {
     return Response.json({ error: "Invalid payload" }, { status: 400 });
@@ -40,10 +42,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "无法识别平台或 URL" }, { status: 400 });
   }
 
+  if (!isAllowedPlatformUrl(platform as CapturePlatform, url)) {
+    return Response.json({ error: "URL 与平台不匹配或不是受支持的 HTTPS 平台地址" }, { status: 400 });
+  }
+
   const messages = (raw.messages ?? [])
+    .slice(0, 400)
     .map((message) => ({
       role: normalizeRole(message.role),
-      content: typeof message.content === "string" ? message.content.trim() : "",
+      content: typeof message.content === "string" ? message.content.trim().slice(0, 200000) : "",
       createdAt: typeof message.createdAt === "string" ? message.createdAt : null
     }))
     .filter((message) => message.content.length > 0);

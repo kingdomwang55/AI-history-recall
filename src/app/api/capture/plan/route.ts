@@ -1,4 +1,5 @@
 import { createLlmCapturePlan } from "@/capture/llm-planner";
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -7,9 +8,10 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = (await request.json().catch(() => null)) as {
+  const { data: body, error } = await readJsonBody<{
     instruction?: unknown;
-  } | null;
+  }>(request);
+  if (error) return error;
 
   if (!body || typeof body.instruction !== "string" || !body.instruction.trim()) {
     return Response.json({ error: "请提供 instruction" }, { status: 400 });

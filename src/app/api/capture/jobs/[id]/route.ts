@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import {
   getCaptureJob,
@@ -30,7 +31,9 @@ export async function POST(request: Request, context: RouteContext) {
   if (unauthorized) return unauthorized;
 
   const { id } = await context.params;
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const batchSize =
     typeof body === "object" && body !== null && typeof (body as { batchSize?: unknown }).batchSize === "number"
       ? (body as { batchSize: number }).batchSize

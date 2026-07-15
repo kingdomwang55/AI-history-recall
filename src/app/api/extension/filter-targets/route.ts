@@ -1,6 +1,7 @@
 import { requireApiToken } from "@/lib/api-auth";
 import { getDb } from "@/lib/db";
 import { selectIncrementalTargets } from "@/capture/incremental-sync";
+import { readJsonBody } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 
@@ -50,7 +51,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const rawTargets =
     typeof body === "object" && body !== null && Array.isArray((body as { targets?: unknown }).targets)
       ? ((body as { targets: CaptureTarget[] }).targets ?? [])

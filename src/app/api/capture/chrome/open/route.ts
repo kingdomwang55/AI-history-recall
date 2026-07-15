@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { openChromePlatformPages } from "@/services/chrome-cdp-service";
 
@@ -7,7 +8,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const platforms =
     typeof body === "object" && body !== null
       ? (body as { platforms?: unknown }).platforms

@@ -1,5 +1,6 @@
 import { capturePlatformConfigs } from "@/capture/platforms";
 import type { CapturePlatform } from "@/capture/types";
+import { parseLoopbackHttpUrl } from "@/lib/api-security";
 
 export interface ChromeCdpStatus {
   ok: boolean;
@@ -11,8 +12,6 @@ export interface ChromeCdpStatus {
 
 export interface LaunchChromeCdpOptions {
   port?: number;
-  userDataDir?: string;
-  chromePath?: string;
 }
 
 export interface LaunchChromeCdpResult {
@@ -83,7 +82,13 @@ function defaultChromePath() {
 }
 
 function defaultUserDataDir() {
-  return `${process.env.HOME || "."}/.ai-history-recall-chrome`;
+  return process.env.CHROME_USER_DATA_DIR || `${process.env.HOME || "."}/.ai-history-recall-chrome`;
+}
+
+function configuredCdpEndpoint(port: number) {
+  const endpoint = process.env.CHROME_CDP_URL || endpointForPort(port);
+  const url = parseLoopbackHttpUrl(endpoint, "CHROME_CDP_URL");
+  return url.toString().replace(/\/$/, "");
 }
 
 async function fetchJson<T>(url: string, timeoutMs = 2500, init?: RequestInit): Promise<T> {
@@ -102,13 +107,14 @@ async function fetchJson<T>(url: string, timeoutMs = 2500, init?: RequestInit): 
 }
 
 export async function getChromeCdpStatus(port = defaultPort): Promise<ChromeCdpStatus> {
-  const endpoint = process.env.CHROME_CDP_URL || endpointForPort(port);
+  let endpoint = endpointForPort(port);
 
   try {
+    endpoint = configuredCdpEndpoint(port);
     const version = await fetchJson<{
       Browser?: string;
       webSocketDebuggerUrl?: string;
-    }>(`${endpoint.replace(/\/$/, "")}/json/version`);
+    }>(`${endpoint}/json/version`);
 
     return {
       ok: Boolean(version.webSocketDebuggerUrl),
@@ -133,8 +139,8 @@ export async function launchChromeCdp(
 ): Promise<LaunchChromeCdpResult> {
   const port = options.port ?? defaultPort;
   const statusBefore = await getChromeCdpStatus(port);
-  const command = options.chromePath || defaultChromePath();
-  const userDataDir = options.userDataDir || defaultUserDataDir();
+  const command = defaultChromePath();
+  const userDataDir = defaultUserDataDir();
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,

@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { runFullCaptureWorkflow, type FullCaptureOptions } from "@/services/capture-full-service";
 
@@ -29,7 +30,8 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
 
   try {
     const result = await runFullCaptureWorkflow(parseOptions(body));

@@ -1,4 +1,5 @@
 import { createExtensionCapturePlan } from "@/capture/extension-agent";
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -7,7 +8,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const instruction =
     typeof body === "object" && body !== null && typeof (body as { instruction?: unknown }).instruction === "string"
       ? (body as { instruction: string }).instruction

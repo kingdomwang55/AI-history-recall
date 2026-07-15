@@ -1,6 +1,7 @@
 import { discoverBrowserHistoryTargets } from "@/capture/browser-runner";
 import { capturePlatformConfigs } from "@/capture/platforms";
 import type { CaptureDiscoveryOptions, CapturePlatform } from "@/capture/types";
+import { isAllowedPlatformUrl, readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -35,7 +36,10 @@ function parseOptions(value: unknown): CaptureDiscoveryOptions | null {
     stopAfterNoNewScrolls:
       typeof raw.stopAfterNoNewScrolls === "number" ? raw.stopAfterNoNewScrolls : undefined,
     exhaustive: raw.exhaustive === true,
-    startUrl: typeof raw.startUrl === "string" ? raw.startUrl : undefined,
+    startUrl:
+      typeof raw.startUrl === "string" && isAllowedPlatformUrl(raw.platform, raw.startUrl)
+        ? raw.startUrl
+        : undefined,
     rateLimit: raw.rateLimit
   };
 }
@@ -44,7 +48,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const options = parseOptions(body);
 
   if (!options) {

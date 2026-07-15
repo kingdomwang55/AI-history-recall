@@ -46,15 +46,15 @@ data/ai-history-recall.sqlite
 AIHR_DB_PATH=/your/path/ai-history-recall.sqlite npm run dev
 ```
 
-如果要启用本地 API shared token，服务端和浏览器 UI 需要使用同一个值：
+`npm run dev` 和 `npm start` 默认只绑定 `127.0.0.1`，不会监听局域网地址。
+
+如果要启用本地 API shared token，只需要在服务端设置 `AIHR_API_TOKEN`：
 
 ```bash
-AIHR_API_TOKEN="change-me" \
-AIHR_LOCAL_API_TOKEN="change-me" \
-npm run dev
+AIHR_API_TOKEN="change-me" npm run dev
 ```
 
-启用后，所有 `/api/*` 接口都会校验 `X-AIHR-API-Token` 或 `Authorization: Bearer ...`。Chrome 扩展可通过未跟踪的 `extension/config.js` 配置同一个 token；仓库提供了 `extension/config.example.js` 作为模板。
+浏览器 UI 不再读取公开的 `NEXT_PUBLIC_*` token；同源本地页面可以直接调用本机接口。Chrome 扩展可通过未跟踪的 `extension/config.js` 配置同一个 token；仓库提供了 `extension/config.example.js` 作为模板。跨站来源、非本机来源和不匹配 token 的请求会被拒绝。
 
 ## 使用
 
@@ -126,6 +126,14 @@ npm run dev
 
 ```bash
 CHROME_PATH="/path/to/Google Chrome" npm run dev
+```
+
+Chrome 可执行文件和 profile 目录只能通过本机环境变量配置，接口不会接受调用方传入的 `chromePath` 或 `userDataDir`：
+
+```bash
+CHROME_PATH="/path/to/Google Chrome" \
+CHROME_USER_DATA_DIR="$HOME/.ai-history-recall-chrome" \
+npm run dev
 ```
 
 也可以手动启动：

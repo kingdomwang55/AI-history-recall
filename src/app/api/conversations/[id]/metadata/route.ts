@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { updateConversationMetadata } from "@/services/conversation-service";
 
@@ -11,10 +12,11 @@ export async function PUT(
   if (unauthorized) return unauthorized;
 
   const { id } = await context.params;
-  const body = (await request.json()) as {
+  const { data: body, error } = await readJsonBody<{
     tags?: unknown;
     note?: unknown;
-  };
+  }>(request);
+  if (error) return error;
 
   const tags = Array.isArray(body.tags)
     ? body.tags.map((tag) => String(tag))

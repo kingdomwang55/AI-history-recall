@@ -8,16 +8,50 @@ type GlobalWithDb = typeof globalThis & {
 
 const globalForDb = globalThis as GlobalWithDb;
 
+function ensurePrivatePath(filePath: string) {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+
+  try {
+    fs.chmodSync(directory, 0o700);
+  } catch {
+    // Best effort on filesystems that do not support POSIX modes.
+  }
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      // Best effort on filesystems that do not support POSIX modes.
+    }
+  }
+}
+
+function secureDatabaseFiles(dbPath: string) {
+  for (const filePath of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      // Best effort on filesystems that do not support POSIX modes.
+    }
+  }
+}
+
 export function getDb() {
   if (!globalForDb.aiHistoryRecallDb) {
     const dbPath =
       process.env.AIHR_DB_PATH ??
       path.join(process.cwd(), "data", "ai-history-recall.sqlite");
 
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    ensurePrivatePath(dbPath);
 
     const db = new Database(dbPath);
     initializeDatabase(db);
+    secureDatabaseFiles(dbPath);
     globalForDb.aiHistoryRecallDb = db;
   }
 

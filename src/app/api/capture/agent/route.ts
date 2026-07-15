@@ -1,4 +1,5 @@
 import { createLlmAgentPlan, runCaptureAgent } from "@/capture/agent";
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
@@ -16,7 +17,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const instruction = parseInstruction(body);
   const dryRun = typeof body === "object" && body !== null && (body as { dryRun?: unknown }).dryRun === true;
 

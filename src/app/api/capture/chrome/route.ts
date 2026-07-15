@@ -1,3 +1,4 @@
+import { parseCdpPort, readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { getChromeCdpStatus, launchChromeCdp } from "@/services/chrome-cdp-service";
 
@@ -15,27 +16,23 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
-  const options =
-    typeof body === "object" && body !== null
-      ? {
-          port:
-            typeof (body as { port?: unknown }).port === "number"
-              ? (body as { port: number }).port
-              : undefined,
-          userDataDir:
-            typeof (body as { userDataDir?: unknown }).userDataDir === "string"
-              ? (body as { userDataDir: string }).userDataDir
-              : undefined,
-          chromePath:
-            typeof (body as { chromePath?: unknown }).chromePath === "string"
-              ? (body as { chromePath: string }).chromePath
-              : undefined
-        }
-      : {};
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
+  let port: number | undefined;
+  try {
+    port = parseCdpPort(
+      typeof body === "object" && body !== null ? (body as { port?: unknown }).port : undefined
+    );
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Chrome CDP 参数无效" },
+      { status: 400 }
+    );
+  }
 
   try {
-    const result = await launchChromeCdp(options);
+    const result = await launchChromeCdp({ port });
     return Response.json(result);
   } catch (error) {
     return Response.json(

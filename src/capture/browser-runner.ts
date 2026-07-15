@@ -8,6 +8,7 @@ import type {
   CaptureTarget,
   ExtractedMessage
 } from "./types";
+import { parseLoopbackHttpUrl } from "@/lib/api-security";
 import type { MessageRole } from "@/types/conversation";
 
 type BrowserLike = {
@@ -89,7 +90,9 @@ async function loadPlaywright(): Promise<PlaywrightCore> {
 }
 
 async function connectBrowser() {
-  const endpoint = process.env.CHROME_CDP_URL || defaultEndpoint;
+  const endpoint = parseLoopbackHttpUrl(process.env.CHROME_CDP_URL || defaultEndpoint, "CHROME_CDP_URL")
+    .toString()
+    .replace(/\/$/, "");
   const playwright = await loadPlaywright();
   const browser = await playwright.chromium.connectOverCDP(endpoint);
 

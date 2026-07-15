@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { getDb, nowIso } from "@/lib/db";
 import type { CapturePlatform } from "@/capture/types";
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
 
   if (typeof body !== "object" || body === null) {
     return Response.json({ error: "Invalid payload" }, { status: 400 });

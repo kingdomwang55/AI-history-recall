@@ -1,3 +1,5 @@
+import { isTrustedLocalRequest } from "@/lib/api-security";
+
 export const API_TOKEN_HEADER = "X-AIHR-API-Token";
 
 export function getConfiguredApiToken() {
@@ -26,7 +28,7 @@ export function getApiTokenFromRequest(request: Request) {
 export function isApiTokenAuthorized(request: Request, configuredToken = getConfiguredApiToken()) {
   const expected = configuredToken.trim();
   if (!expected) {
-    return true;
+    return false;
   }
 
   return getApiTokenFromRequest(request) === expected;
@@ -34,6 +36,22 @@ export function isApiTokenAuthorized(request: Request, configuredToken = getConf
 
 export function requireApiToken(request: Request) {
   if (isApiTokenAuthorized(request)) {
+    return null;
+  }
+
+  const configuredToken = getConfiguredApiToken();
+  const origin = request.headers.get("origin") ?? "";
+  const url = new URL(request.url);
+  const isExtensionEndpoint = url.pathname.startsWith("/api/extension/");
+  if (!configuredToken && isExtensionEndpoint && origin.startsWith("chrome-extension://")) {
+    return null;
+  }
+
+  const hasBrowserLocalContext =
+    Boolean(origin) ||
+    ["same-origin", "same-site", "none"].includes(request.headers.get("sec-fetch-site") ?? "");
+
+  if (isTrustedLocalRequest(request) && (!configuredToken || hasBrowserLocalContext)) {
     return null;
   }
 

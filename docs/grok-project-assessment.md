@@ -142,7 +142,7 @@
 | **双锁文件** | 同时存在 `package-lock.json` 与 `pnpm-lock.yaml`，README 写 npm，workspace 是 pnpm 半成品 |
 | **`pnpm-workspace.yaml` 异常** | 内容像 `onlyBuiltDependencies` 提示文本，不是正常 workspace 配置 |
 | **无 Git 仓库** | 当前目录非 git 仓库，无版本历史、难回滚、难协作 |
-| **硬编码本机绝对路径** | `CapturePlanner.tsx` 中 `extensionDirectoryPath = "<local-path> |
+| **硬编码本机绝对路径** | `CapturePlanner.tsx` 曾存在本机 workspace 绝对路径，需改为可配置路径 |
 
 ### P1 — 可维护性债务
 

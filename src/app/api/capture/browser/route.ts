@@ -1,6 +1,7 @@
 import { runBrowserCapture } from "@/capture/browser-runner";
 import { capturePlatformConfigs } from "@/capture/platforms";
 import type { CapturePlan, CapturePlatform } from "@/capture/types";
+import { isAllowedPlatformUrl, readJsonBody } from "@/lib/api-security";
 import { requireApiToken } from "@/lib/api-auth";
 import { importParsedConversations } from "@/services/import-service";
 
@@ -25,11 +26,11 @@ function parsePlan(value: unknown): CapturePlan | null {
       target &&
       isPlatform(target.platform) &&
       typeof target.url === "string" &&
-      target.url.startsWith("http")
+      isAllowedPlatformUrl(target.platform, target.url)
   );
 
   return {
-    targets,
+    targets: targets.slice(0, 100),
     rateLimit: raw.rateLimit,
     importAfterCapture: raw.importAfterCapture !== false
   };
@@ -39,7 +40,9 @@ export async function POST(request: Request) {
   const unauthorized = requireApiToken(request);
   if (unauthorized) return unauthorized;
 
-  const body = await request.json().catch(() => null);
+  const { data: body, error } = await readJsonBody(request);
+  if (error) return error;
+
   const plan = parsePlan(body);
 
   if (!plan || plan.targets.length === 0) {

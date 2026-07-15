@@ -4,10 +4,10 @@ final result: passed
 
 ## Comparison Targets
 
-- C source visual truth: `<local-path>
+- C source visual truth: local generated Product Design reference image
 - C implementation: `/tmp/ai-history-recall-ui-implementation-2026-07-15/11-detail-desktop-delivery.png`
 - C side-by-side evidence: `/tmp/ai-history-recall-ui-implementation-2026-07-15/qa-c-detail-final.png`
-- B source visual truth: `<local-path>
+- B source visual truth: local generated Product Design reference image
 - B implementation: `/tmp/ai-history-recall-ui-implementation-2026-07-15/03-capture-desktop.png`
 - B side-by-side evidence: `/tmp/ai-history-recall-ui-implementation-2026-07-15/qa-b-capture.png`
 - Desktop viewport: `1440x1024`
