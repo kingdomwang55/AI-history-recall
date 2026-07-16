@@ -33,7 +33,13 @@
         "http://localhost:3000/*",
         "http://127.0.0.1:3000/*"
       ],
-      "js": ["incremental-sync.js", "content.js"],
+      "js": [
+        "core/constants.js",
+        "core/protocol.js",
+        "platforms/registry.js",
+        "incremental-sync.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]
