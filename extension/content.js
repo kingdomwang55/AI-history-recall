@@ -1098,6 +1098,7 @@ if (isLocalAppUrl(location.href)) {
     if (event.source !== window || event.origin !== location.origin) return;
     const message = event.data;
     if (message?.source !== "aihr-web") return;
+    if (!globalThis.AIHR_PROTOCOL.validate(message).ok) return;
 
     const requestId = message.requestId || crypto.randomUUID();
     const respond = (payload) => {

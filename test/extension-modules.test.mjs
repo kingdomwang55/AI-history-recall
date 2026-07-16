@@ -16,6 +16,51 @@ function loadExtensionScripts(files) {
   return context;
 }
 
+function loadContentBridge() {
+  const eventHandlers = new Map();
+  const sentMessages = [];
+  const window = {
+    addEventListener(type, handler) {
+      eventHandlers.set(type, handler);
+    },
+    postMessage() {}
+  };
+  const context = vm.createContext({
+    URL,
+    chrome: {
+      runtime: {
+        lastError: null,
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+          callback({ ok: true });
+        },
+        onMessage: { addListener() {} }
+      }
+    },
+    crypto: { randomUUID: () => "request-id" },
+    document: { body: {}, title: "" },
+    location: { href: "http://127.0.0.1:3000/capture", origin: "http://127.0.0.1:3000" },
+    window
+  });
+  context.globalThis = context;
+
+  for (const file of ["extension/core/constants.js", "extension/core/protocol.js", "extension/content.js"]) {
+    const source = fs.readFileSync(path.join(process.cwd(), file), "utf8");
+    vm.runInContext(source, context, { filename: file });
+  }
+
+  return {
+    dispatch(message) {
+      eventHandlers.get("message")({
+        source: window,
+        origin: context.location.origin,
+        data: { source: "aihr-web", ...message }
+      });
+    },
+    sentMessages
+  };
+}
+
 function adapter(overrides = {}) {
   return {
     id: "chatgpt",
@@ -56,6 +101,14 @@ test("platform registry rejects incomplete and duplicate adapters", () => {
   assert.throws(() => context.AIHR_PLATFORMS.register(adapter()));
 });
 
+test("platform registry continues after an adapter match failure", () => {
+  const context = loadExtensionScripts(["extension/platforms/registry.js"]);
+  context.AIHR_PLATFORMS.register(adapter({ id: "broken", matches: () => { throw new Error("unavailable"); } }));
+  context.AIHR_PLATFORMS.register(adapter({ id: "chatgpt" }));
+
+  assert.equal(context.AIHR_PLATFORMS.forUrl("https://chatgpt.com/c/1").id, "chatgpt");
+});
+
 test("bridge protocol accepts known content messages and rejects unknown or incompatible messages", () => {
   const context = loadExtensionScripts(["extension/core/constants.js", "extension/core/protocol.js"]);
 
@@ -63,6 +116,24 @@ test("bridge protocol accepts known content messages and rejects unknown or inco
   assert.equal(context.AIHR_PROTOCOL.validate({ type: "AIHR_CONTENT_PING", protocolVersion: 1 }).ok, true);
   assert.equal(context.AIHR_PROTOCOL.validate({ type: "UNKNOWN" }).ok, false);
   assert.equal(context.AIHR_PROTOCOL.validate({ type: "AIHR_WEB_GET_STATUS", protocolVersion: 999 }).ok, false);
+});
+
+test("content bridge blocks unknown and incompatible page messages before runtime dispatch", () => {
+  const bridge = loadContentBridge();
+
+  bridge.dispatch({ type: "AIHR_WEB_START_CAPTURE", protocolVersion: 999 });
+  bridge.dispatch({ type: "UNKNOWN" });
+
+  assert.deepEqual(bridge.sentMessages, []);
+});
+
+test("content bridge accepts legacy page messages without a protocol version", () => {
+  const bridge = loadContentBridge();
+
+  bridge.dispatch({ type: "AIHR_WEB_GET_STATUS" });
+
+  assert.equal(bridge.sentMessages.length, 1);
+  assert.equal(bridge.sentMessages[0].type, "AIHR_GET_RUN_STATUS");
 });
 
 test("manifest loads content contracts before the existing coordinator", () => {

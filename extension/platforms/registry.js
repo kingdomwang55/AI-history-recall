@@ -23,7 +23,11 @@
 
   function forUrl(url) {
     for (const adapter of adapters.values()) {
-      if (adapter.matches(url)) return adapter;
+      try {
+        if (adapter.matches(url)) return adapter;
+      } catch {
+        continue;
+      }
     }
     return null;
   }
