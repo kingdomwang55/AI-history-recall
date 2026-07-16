@@ -80,9 +80,9 @@ globalThis.AIHR_CONSTANTS = Object.freeze({
 
 The registry must reject duplicate IDs and adapters missing `matches`, `discover`, `extract`, or `diagnostics`. The protocol must allow the existing `AIHR_WEB_*` and `AIHR_CONTENT_*` message families explicitly.
 
-- [ ] **Step 4: Load modules before coordinators**
+- [ ] **Step 4: Load content modules before the content coordinator**
 
-Update `content_scripts[].js` to load constants, protocol, registry, four platform adapters, `incremental-sync.js`, then `content.js`. Update `background.service_worker` to `background-entry.js`, whose first action is `importScripts(...)` for the same core constants and worker modules.
+Update `content_scripts[].js` to load constants, protocol, registry, four platform adapters, `incremental-sync.js`, then `content.js`. Keep the existing background service worker unchanged in this task so every intermediate commit remains loadable; Task 3 switches it when `background-entry.js` and its imported worker modules exist.
 
 - [ ] **Step 5: Verify GREEN and commit**
 
@@ -210,7 +210,7 @@ Move callback-to-Promise Chrome wrappers into `chrome-api.js`, fetch/token/endpo
 
 - [ ] **Step 4: Make the service worker a coordinator**
 
-`background-entry.js` imports modules and `background.js`. The latter wires commands to queue and scheduler methods and retains no direct `chrome.storage`, `chrome.alarms`, or raw local endpoint constants.
+`background-entry.js` imports modules and `background.js`. Switch `manifest.json` to this service worker in the same change. The coordinator wires commands to queue and scheduler methods and retains no direct `chrome.storage`, `chrome.alarms`, or raw local endpoint constants.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -219,7 +219,7 @@ Run: `node --test test/extension-background-core.test.mjs test/extension-safety.
 Expected: all selected tests pass.
 
 ```bash
-git add extension/background-entry.js extension/background.js extension/core test/extension-background-core.test.mjs
+git add extension/background-entry.js extension/background.js extension/core extension/manifest.json test/extension-background-core.test.mjs
 git commit -m "refactor: split extension background core"
 ```
 
