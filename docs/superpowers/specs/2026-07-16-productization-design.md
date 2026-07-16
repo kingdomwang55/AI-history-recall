@@ -56,13 +56,20 @@ The first adapters are ChatGPT, Gemini, DeepSeek, and Qwen. Platform DOM and sam
 
 Knowledge processing is a persistent SQLite-backed queue. Import and capture transactions enqueue work by conversation content fingerprint after messages and search indexes are updated. A worker claims jobs in small batches and writes results atomically.
 
-The desktop sidecar continuously runs the worker. Browser development mode uses a throttled application heartbeat to process small batches, so both modes share queue semantics and restart recovery.
+The desktop daemon continuously runs the worker. Browser development mode uses a throttled application heartbeat to process small batches, so both modes share queue semantics and restart recovery.
 
 ### Desktop Shell
 
-Tauri 2 provides the native shell, single-instance behavior, tray lifecycle, and macOS/Windows packaging. A bundled Next.js standalone server runs as a managed sidecar and retains the existing Node.js and `better-sqlite3` implementation.
+Tauri 2 provides the native shell, single-instance behavior, tray lifecycle, and macOS/Windows packaging. Desktop execution uses two managed sidecars with different lifetimes:
 
-The desktop service binds only to a fixed loopback port reserved by the application and performs an explicit conflict check. The extension probes the desktop endpoint first and the development endpoint second. A generated local API token pairs the desktop application and extension without requiring users to edit a file.
+- a lightweight local daemon remains available in the tray and handles extension ingestion, queue scheduling, health checks, and SQLite access;
+- the Next.js standalone UI server starts only when a window is requested and stops after the last application window is closed.
+
+The window WebView is destroyed on close and recreated on demand. The lightweight daemon and UI server call the same application services, so the split does not create separate capture, knowledge, or database implementations.
+
+The daemon binds only to a fixed loopback port reserved by the application and performs an explicit conflict check. The UI uses a separate ephemeral loopback port. The extension probes the daemon endpoint first and the development endpoint second. A generated local API token pairs the desktop application and extension without requiring users to edit a file.
+
+Background work is event-driven. Queue insertion wakes the worker, scheduled capture uses native timers, and idle health checks use adaptive intervals. No component may use a tight polling loop. Knowledge processing defaults to one concurrent job and yields between jobs so capture and operating-system activity remain responsive.
 
 ## Data Model
 
@@ -84,7 +91,7 @@ Interrupted `running` jobs become claimable after a lease expires. Retries use b
 
 ### Automatic Tags
 
-`auto_conversation_tags` stores generated tag relationships separately from existing manual/imported tags. Metadata editing only replaces manual tags. Reads may return the union, while the interface marks generated tags so users understand their origin.
+`auto_conversation_tags` stores generated tag relationships separately from existing manual/imported tags. Metadata editing only replaces manual tags. Conversation reads return manual and automatic tags separately plus a combined tag list for filtering; the interface marks generated tags so users understand their origin.
 
 ### Similar Conversations
 
@@ -147,7 +154,20 @@ The application provides a bundled unpacked extension directory and opens the co
 
 ### Settings And Lifecycle
 
-Settings cover launch at login, tray/background behavior, capture scheduling, knowledge processing, optional model configuration, data backup/restore, and diagnostics. Closing the main window may leave the application in the tray; choosing Quit stops the worker and sidecar cleanly.
+Settings cover launch at login, tray/background behavior, capture scheduling, knowledge processing, optional model configuration, data backup/restore, and diagnostics. Closing the main window destroys the WebView and UI server while leaving the lightweight daemon in the tray. Choosing Quit stops all workers and sidecars cleanly.
+
+The first interactive launch opens onboarding. Launch-at-login starts directly in the tray without showing a window. A normal user launch opens or focuses the main window. Tray actions expose Open, Sync now, Pause background work, Health, and Quit. Active capture and knowledge work produce a subtle tray status change but no notification unless user action is required.
+
+### Resource Budget
+
+With no active capture or model request and the main window closed, the combined Tauri supervisor and local daemon target:
+
+- average CPU below 0.5% over a five-minute idle sample;
+- resident memory at or below 120 MB on supported macOS and Windows test machines;
+- no network requests except configured platform schedules and explicit local health probes;
+- no database wake-up more frequently than once per minute while fully idle.
+
+The build records measured idle CPU and memory in release diagnostics. Exceeding the budget blocks release acceptance until the cause is documented and corrected. Optional local model processes are excluded from the application budget and are never started by the application.
 
 ## Security And Privacy
 
@@ -165,6 +185,7 @@ Settings cover launch at login, tray/background behavior, capture scheduling, kn
 - A failed platform adapter cannot stop other platform adapters.
 - A failed optional model falls back to valid rule-based results.
 - Sidecar startup failures and port conflicts produce a recovery screen with logs and retry actions.
+- If the UI server cannot start, the tray daemon stays operational and offers retry and diagnostic actions.
 - Extension protocol mismatches produce an upgrade instruction instead of sending capture commands.
 - Backup restore validates the SQLite file before replacing the active database and preserves a rollback copy.
 
@@ -177,7 +198,7 @@ Build tooling produces:
 - a packaged Chrome extension directory;
 - platform-specific Next.js standalone sidecar resources.
 
-CI contains separate macOS and Windows jobs. Unsigned development artifacts are supported and documented. Code signing, notarization, and a remote auto-update service require external credentials and are intentionally not enabled in this delivery; update hooks may be prepared without embedding secrets.
+CI contains separate macOS and Windows jobs. Unsigned development artifacts are supported and documented. Code signing, notarization, remote update infrastructure, and update hooks require a separate release design and are not included in this delivery.
 
 ## Testing And Acceptance
 
@@ -191,6 +212,7 @@ CI contains separate macOS and Windows jobs. Unsigned development artifacts are 
 - API authorization and redacted diagnostic report tests;
 - database migration tests from the current schema;
 - desktop sidecar command, endpoint probing, and lifecycle unit tests;
+- tray-only startup, UI sidecar on-demand startup, WebView destruction, and idle scheduling tests;
 - existing import, capture, search, export, metadata, and security regression tests.
 
 ### Build And Smoke Verification
@@ -201,6 +223,7 @@ CI contains separate macOS and Windows jobs. Unsigned development artifacts are 
 - Windows packaging configuration is validated in its native CI job.
 - First-run setup works from an empty application data directory.
 - The default installation performs knowledge processing without downloading or calling a model.
+- A five-minute tray-only idle sample meets the documented CPU, memory, network, and database wake-up budget on macOS and Windows release runners.
 
 ## Out Of Scope
 
