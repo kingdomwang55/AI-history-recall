@@ -119,6 +119,7 @@ mark { border-radius: 2px; background: #fff1a8; color: inherit; padding: 0 2px; 
 .date-range-grid input { min-width: 0; padding-inline: 8px; font-size: 12px; }
 .platform-badge { display: inline-flex; min-height: 27px; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-secondary); padding: 3px 8px; color: var(--text-secondary); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .platform-badge img, .platform-badge svg { flex: 0 0 auto; opacity: .78; }
+.match-kind-badge { display: inline-flex; min-height: 21px; align-items: center; border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--primary) 8%, var(--surface)); padding: 1px 6px; color: var(--primary-active); font-size: 11px; font-weight: 600; white-space: nowrap; }
 
 .knowledge-workspace { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); min-height: calc(100dvh - var(--topbar-height) - 56px); overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .search-filter-panel { border-right: 1px solid var(--divider); background: var(--bg-tertiary); }

@@ -234,6 +234,7 @@ export function deleteConversation(conversationId: string) {
     }
 
     db.prepare("DELETE FROM search_index WHERE conversation_id = ?").run(conversationId);
+    db.prepare("DELETE FROM semantic_index WHERE conversation_id = ?").run(conversationId);
     db.prepare("DELETE FROM conversation_tags WHERE conversation_id = ?").run(conversationId);
     db.prepare("DELETE FROM notes WHERE conversation_id = ?").run(conversationId);
     db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(conversationId);

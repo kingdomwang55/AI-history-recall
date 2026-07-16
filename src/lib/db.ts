@@ -144,6 +144,27 @@ function migrateDatabase(db: Database.Database) {
       background_enabled INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS semantic_index (
+      message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      source_platform TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'unknown')),
+      imported_at TEXT NOT NULL,
+      vector BLOB NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_semantic_index_conversation
+    ON semantic_index(conversation_id);
+
+    CREATE INDEX IF NOT EXISTS idx_semantic_index_platform_model
+    ON semantic_index(source_platform, model);
   `);
 
   const discoveryColumns = db

@@ -64,11 +64,12 @@ test("returns imported conversations through the FTS index", () => {
   });
 
   assert.equal(imported.importedConversations, 1);
-  assert.equal(results.length, 1);
+  assert.ok(results.length >= 1);
   assert.equal(results[0].conversationId, imported.conversationIds[0]);
   assert.equal(results[0].title, "Luminous Search Regression");
   assert.equal(results[0].sourcePlatform, "gemini");
   assert.match(results[0].snippet, /nebula-rutabaga/);
+  assert.ok(["keyword", "hybrid"].includes(results[0].matchKind));
 });
 
 test("falls back to recent results when a query has no searchable terms", () => {
@@ -140,4 +141,34 @@ test("filters conversations by an inclusive imported date range", () => {
   });
 
   assert.deepEqual(results.map((result) => result.conversationId), [newer.conversationIds[0]]);
+});
+
+test("returns semantic matches when exact query words are absent", () => {
+  useTempDb();
+  const imported = importParsedConversations(
+    [
+      {
+        title: "Logged-in browser snapshots",
+        sourcePlatform: "chatgpt",
+        sourceUrl: "https://chatgpt.com/c/semantic-capture",
+        messages: [
+          {
+            role: "assistant",
+            content: "The Chrome extension saves delayed snapshots from the signed-in browser session."
+          }
+        ]
+      }
+    ],
+    "semantic.json",
+    "chatgpt"
+  );
+
+  const results = searchConversations({
+    query: "自动采集浏览器历史",
+    sort: "newest"
+  });
+
+  assert.equal(results[0].conversationId, imported.conversationIds[0]);
+  assert.equal(results[0].matchKind, "semantic");
+  assert.match(results[0].snippet, /Chrome extension/);
 });

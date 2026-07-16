@@ -69,6 +69,13 @@ function markedSnippet(snippet: string) {
   return nodes;
 }
 
+function matchKindLabel(kind: string | undefined) {
+  if (kind === "hybrid") return "双命中";
+  if (kind === "semantic") return "语义";
+  if (kind === "keyword") return "关键词";
+  return "最近";
+}
+
 export default async function SearchPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
   const filters: SearchFilters = {
@@ -112,7 +119,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div className="divide-y divide-[var(--line)]">
               {results.map((result) => (
                 <Link key={`${result.conversationId}-${result.messageId ?? "conversation"}`} href={`/conversations/${result.conversationId}?from=${encodeURIComponent(backQuery.toString())}`} className="group grid gap-2 px-5 py-4 transition hover:bg-[var(--surface-subtle)] sm:grid-cols-[minmax(0,1fr)_150px]">
-                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><PlatformBadge platform={result.sourcePlatform} /><span className="text-[11px] text-[var(--muted)]">{roleLabel(result.role)}</span></div><h3 className="mt-2 truncate text-[15px] font-semibold group-hover:text-[var(--accent-strong)]">{result.title}</h3><p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-[13px] leading-5 text-[var(--muted)]">{markedSnippet(result.snippet)}</p></div>
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><PlatformBadge platform={result.sourcePlatform} /><span className="text-[11px] text-[var(--muted)]">{roleLabel(result.role)}</span><span className="match-kind-badge">{matchKindLabel(result.matchKind)}</span></div><h3 className="mt-2 truncate text-[15px] font-semibold group-hover:text-[var(--accent-strong)]">{result.title}</h3><p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-[13px] leading-5 text-[var(--muted)]">{markedSnippet(result.snippet)}</p></div>
                   <div className="text-xs tabular-nums text-[var(--muted)] sm:text-right">{formatDateTime(result.importedAt)}</div>
                 </Link>
               ))}

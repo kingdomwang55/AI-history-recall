@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { searchSemanticIndex } from "@/services/semantic-index-service";
 import type { MessageRole } from "@/types/conversation";
 
 export const HIGHLIGHT_START = "[[AIHR_HIGHLIGHT_START]]";
@@ -21,6 +22,8 @@ export interface SearchResult {
   role: MessageRole;
   importedAt: string;
   snippet: string;
+  matchKind?: "keyword" | "semantic" | "hybrid" | "recent";
+  score?: number;
 }
 
 export function getSearchFacets() {
@@ -173,24 +176,14 @@ function recentResults(filters: SearchFilters): SearchResult[] {
 
       return {
         ...item,
-        snippet: plainSnippet(item.title, item.content, "")
+        snippet: plainSnippet(item.title, item.content, ""),
+        matchKind: "recent" as const
       };
     });
 }
 
-export function searchConversations(filters: SearchFilters): SearchResult[] {
+function keywordResults(filters: SearchFilters, match: string): SearchResult[] {
   const db = getDb();
-  const query = filters.query.trim();
-
-  if (!query) {
-    return recentResults(filters);
-  }
-
-  const match = ftsQuery(query);
-  if (!match) {
-    return recentResults({ ...filters, query: "" });
-  }
-
   const { sql, params } = buildWhere(filters, true);
 
   try {
@@ -212,7 +205,12 @@ export function searchConversations(filters: SearchFilters): SearchResult[] {
         LIMIT 100
       `
       )
-      .all(params) as SearchResult[];
+      .all({ ...params, match })
+      .map((row) => ({
+        ...(row as Omit<SearchResult, "matchKind" | "score">),
+        matchKind: "keyword" as const,
+        score: 1
+      }));
   } catch {
     const fallback = buildWhere(filters, false);
     return db
@@ -235,7 +233,7 @@ export function searchConversations(filters: SearchFilters): SearchResult[] {
       )
       .all(fallback.params)
       .map((row) => {
-        const item = row as SearchResult & { content: string };
+        const item = row as Omit<SearchResult, "snippet" | "matchKind" | "score"> & { content: string };
         return {
           conversationId: item.conversationId,
           messageId: item.messageId,
@@ -243,8 +241,75 @@ export function searchConversations(filters: SearchFilters): SearchResult[] {
           sourcePlatform: item.sourcePlatform,
           role: item.role,
           importedAt: item.importedAt,
-          snippet: plainSnippet(item.title, item.content, query)
+          snippet: plainSnippet(item.title, item.content, filters.query),
+          matchKind: "keyword" as const,
+          score: 0.82
         };
       });
   }
+}
+
+function hybridSort(sort: SearchFilters["sort"]) {
+  const dateFactor = sort === "oldest" ? 1 : -1;
+  return (left: SearchResult, right: SearchResult) => {
+    const scoreDelta = (right.score ?? 0) - (left.score ?? 0);
+    if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
+    return dateFactor * (new Date(left.importedAt).getTime() - new Date(right.importedAt).getTime());
+  };
+}
+
+function hybridResults(filters: SearchFilters, match: string): SearchResult[] {
+  const keyword = keywordResults(filters, match);
+  const semantic = searchSemanticIndex(getDb(), filters, {
+    limit: 90,
+    minScore: keyword.length > 0 ? 0.16 : 0.12
+  }).map((row): SearchResult => ({
+    conversationId: row.conversationId,
+    messageId: row.messageId,
+    title: row.title,
+    sourcePlatform: row.sourcePlatform,
+    role: row.role,
+    importedAt: row.importedAt,
+    snippet: plainSnippet(row.title, row.content, filters.query),
+    matchKind: "semantic",
+    score: 0.58 + row.score
+  }));
+
+  const merged = new Map<string, SearchResult>();
+
+  for (const result of keyword) {
+    merged.set(`${result.conversationId}:${result.messageId ?? ""}`, result);
+  }
+
+  for (const result of semantic) {
+    const key = `${result.conversationId}:${result.messageId ?? ""}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, result);
+      continue;
+    }
+
+    merged.set(key, {
+      ...existing,
+      matchKind: "hybrid",
+      score: Math.max(existing.score ?? 0, result.score ?? 0) + 0.28
+    });
+  }
+
+  return [...merged.values()].sort(hybridSort(filters.sort)).slice(0, 100);
+}
+
+export function searchConversations(filters: SearchFilters): SearchResult[] {
+  const query = filters.query.trim();
+
+  if (!query) {
+    return recentResults(filters);
+  }
+
+  const match = ftsQuery(query);
+  if (!match) {
+    return recentResults({ ...filters, query: "" });
+  }
+
+  return hybridResults(filters, match);
 }

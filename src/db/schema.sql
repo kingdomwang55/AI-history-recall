@@ -59,6 +59,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
   tokenize = 'unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS semantic_index (
+  message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  content_hash TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_platform TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'unknown')),
+  imported_at TEXT NOT NULL,
+  vector BLOB NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_index_conversation
+ON semantic_index(conversation_id);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_index_platform_model
+ON semantic_index(source_platform, model);
+
 CREATE INDEX IF NOT EXISTS idx_conversations_imported_at
 ON conversations(imported_at);
 

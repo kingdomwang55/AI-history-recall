@@ -6,7 +6,7 @@ AI History Recall 是一个本地优先、隐私友好的 AI 历史对话召回�
 
 > AI 工具越用越多，真正的问题不是模型不够强，而是人的问题资产正在失忆。AI History Recall 帮你把散落在不同 AI 平台里的历史对话重新召回，让曾经解决过的问题、写过的方案、踩过的坑，不再沉没在各个平台的历史列表里。
 
-第一版不是聊天工具，也不接云端。它只做一个 MVP 闭环：导入本地历史对话文件，标准化存入 SQLite，用 FTS5 全文搜索，再进入详情页做复制、标签和备注。
+第一版不是聊天工具，也不接云端。它先做一个本地闭环：导入或采集历史对话，标准化存入 SQLite，用 FTS5 + 本地语义索引混合搜索，再进入详情页做复制、标签、备注和导出。
 
 ## 技术栈
 
@@ -16,6 +16,7 @@ AI History Recall 是一个本地优先、隐私友好的 AI 历史对话召回�
 - Tailwind CSS
 - SQLite
 - SQLite FTS5
+- 本地语义索引，可选 Ollama / OpenAI-compatible embedding
 - better-sqlite3
 - playwright-core，用于连接本机 Chrome 做可控浏览器采集
 - 本地文件导入
@@ -55,6 +56,37 @@ AIHR_API_TOKEN="change-me" npm run dev
 ```
 
 浏览器 UI 不再读取公开的 `NEXT_PUBLIC_*` token；同源本地页面可以直接调用本机接口。Chrome 扩展可通过未跟踪的 `extension/config.js` 配置同一个 token；仓库提供了 `extension/config.example.js` 作为模板。跨站来源、非本机来源和不匹配 token 的请求会被拒绝。
+
+### 语义搜索与本地 embedding
+
+默认情况下，AI History Recall 使用内置的离线语义索引，不启用、不启动、也不调用任何 embedding 小模型；不需要下载模型，也不会把对话内容发出本机。只有显式设置 `AIHR_EMBEDDING_PROVIDER=ollama` 或 `AIHR_EMBEDDING_PROVIDER=openai-compatible` 时，才会调用外部或本机 embedding 服务。若要提升语义召回质量，可以配置本机 Ollama embedding 模型：
+
+```bash
+ollama pull embeddinggemma
+
+AIHR_EMBEDDING_PROVIDER=ollama \
+AIHR_EMBEDDING_MODEL=embeddinggemma \
+AIHR_EMBEDDING_BASE_URL=http://127.0.0.1:11434 \
+npm run dev
+```
+
+首次切换 embedding 模型后，需要在对话详情页点击“重建搜索索引”，或调用：
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/search/reindex
+```
+
+也支持 OpenAI-compatible embedding 服务：
+
+```bash
+AIHR_EMBEDDING_PROVIDER=openai-compatible \
+AIHR_EMBEDDING_MODEL=your-embedding-model \
+AIHR_EMBEDDING_BASE_URL=http://127.0.0.1:8000 \
+AIHR_EMBEDDING_API_KEY=optional-token \
+npm run dev
+```
+
+推荐优先用专门的 embedding 模型，例如 `embeddinggemma`、`qwen3-embedding`、`nomic-embed-text`、`mxbai-embed-large` 或 `bge-m3`。普通生成模型例如 `gemma4` 主要用于文本/多模态生成，不是 embedding 模型；除非运行时明确提供 embedding 向量接口，否则不建议拿它做语义搜索索引。
 
 ## 使用
 
@@ -483,7 +515,7 @@ data/
 - 支持 Claude 官方导出
 - 支持 DeepSeek 历史记录导出
 - 更好的中文分词搜索
-- 本地 embedding 语义搜索
+- embedding 模型健康检查和 UI 配置页
 - 自动总结对话
 - 按项目聚类和问题资产分类
 - 通义千问官方导出格式解析

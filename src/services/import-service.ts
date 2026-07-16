@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb, nowIso } from "@/lib/db";
 import { findAdapter } from "@/import/adapters";
+import { semanticIndexParams } from "@/services/semantic-index-service";
 import type {
   ImportFileInput,
   ImportResult,
@@ -189,6 +190,17 @@ function persistConversations(
       )
     `);
 
+    const insertSemanticIndex = db.prepare(`
+      INSERT OR REPLACE INTO semantic_index (
+        message_id, conversation_id, model, dimensions, content_hash, title,
+        content, source_platform, role, imported_at, vector, updated_at
+      )
+      VALUES (
+        @messageId, @conversationId, @model, @dimensions, @contentHash, @title,
+        @content, @sourcePlatform, @role, @importedAt, @vector, @updatedAt
+      )
+    `);
+
     const insertTag = db.prepare(`
       INSERT OR IGNORE INTO tags (id, name, created_at)
       VALUES (@id, @name, @createdAt)
@@ -261,6 +273,18 @@ function persistConversations(
               sourcePlatform
             });
 
+            insertSemanticIndex.run(
+              semanticIndexParams({
+                conversationId: existing.id,
+                messageId,
+                role,
+                title: existing.title,
+                content: message.content,
+                sourcePlatform,
+                importedAt
+              })
+            );
+
             importedMessages += 1;
           });
 
@@ -310,6 +334,18 @@ function persistConversations(
           content: message.content,
           sourcePlatform
         });
+
+        insertSemanticIndex.run(
+          semanticIndexParams({
+            conversationId,
+            messageId,
+            role,
+            title: conversation.title,
+            content: message.content,
+            sourcePlatform,
+            importedAt
+          })
+        );
 
         importedMessages += 1;
       });

@@ -17,6 +17,13 @@ function cleanContextSnippet(value: string) {
   return value.replaceAll(HIGHLIGHT_START, "").replaceAll(HIGHLIGHT_END, "");
 }
 
+function matchKindLabel(kind: string | undefined) {
+  if (kind === "hybrid") return "双命中";
+  if (kind === "semantic") return "语义";
+  if (kind === "keyword") return "关键词";
+  return "最近";
+}
+
 export default async function ConversationPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string }> }) {
   const { id } = await params;
   const { from } = await searchParams;
@@ -54,7 +61,7 @@ export default async function ConversationPage({ params, searchParams }: { param
                 data-active={result.conversationId === conversation.id ? "true" : undefined}
                 className="block border-l-2 border-transparent px-4 py-3 hover:bg-[var(--surface-subtle)] data-[active=true]:border-[var(--accent)] data-[active=true]:bg-[var(--accent-soft)]"
               >
-                <div className="flex items-center gap-2"><PlatformBadge platform={result.sourcePlatform} /><span className="text-[11px] text-[var(--muted)]">{roleLabel(result.role)}</span></div>
+                <div className="flex items-center gap-2"><PlatformBadge platform={result.sourcePlatform} /><span className="text-[11px] text-[var(--muted)]">{roleLabel(result.role)}</span><span className="match-kind-badge">{matchKindLabel(result.matchKind)}</span></div>
                 <div className="mt-2 line-clamp-1 text-sm font-semibold">{result.title}</div>
                 <div className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{cleanContextSnippet(result.snippet)}</div>
                 <div className="mt-2 text-[11px] tabular-nums text-[var(--muted)]">{formatDateTime(result.importedAt)}</div>

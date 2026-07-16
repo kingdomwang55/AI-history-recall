@@ -76,20 +76,25 @@ test("deleteConversation removes canonical and derived conversation data", () =>
   assert.equal(countRows("conversation_tags", "WHERE conversation_id = ?", [conversationId]), 0);
   assert.equal(countRows("notes", "WHERE conversation_id = ?", [conversationId]), 0);
   assert.equal(countRows("search_index", "WHERE conversation_id = ?", [conversationId]), 0);
+  assert.equal(countRows("semantic_index", "WHERE conversation_id = ?", [conversationId]), 0);
 });
 
-test("reindexSearch rebuilds FTS rows from canonical messages", () => {
+test("reindexSearch rebuilds FTS and semantic rows from canonical messages", () => {
   useTempDb();
   seedConversation();
   const db = getDb();
 
   db.prepare("DELETE FROM search_index").run();
+  db.prepare("DELETE FROM semantic_index").run();
   assert.equal(countRows("search_index"), 0);
+  assert.equal(countRows("semantic_index"), 0);
 
   const result = reindexSearch();
 
   assert.equal(result.indexedMessages, 2);
+  assert.equal(result.indexedSemanticMessages, 2);
   assert.equal(countRows("search_index"), 2);
+  assert.equal(countRows("semantic_index"), 2);
 });
 
 test("management write routes require the shared API token", async () => {

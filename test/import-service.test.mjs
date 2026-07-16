@@ -63,6 +63,7 @@ test("skips duplicate source URLs without duplicating messages", () => {
 
   assert.equal(conversationCount.count, 1);
   assert.equal(messageCount.count, 2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM semantic_index").get().count, 2);
 });
 
 test("merges appended messages into an existing source URL without replacing user metadata", () => {
@@ -157,6 +158,10 @@ test("merges appended messages into an existing source URL without replacing use
     .prepare("SELECT COUNT(*) AS count FROM search_index WHERE conversation_id = ? AND content MATCH ?")
     .get(conversationId, '"unseen tail"');
   assert.equal(indexedTail.count, 1);
+  const semanticTail = db
+    .prepare("SELECT COUNT(*) AS count FROM semantic_index WHERE conversation_id = ? AND content LIKE ?")
+    .get(conversationId, "%unseen tail%");
+  assert.equal(semanticTail.count, 1);
 
   const third = importParsedConversations(
     [

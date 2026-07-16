@@ -39,7 +39,7 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
   }
 
   async function reindexAllSearch() {
-    if (!window.confirm("重建本地搜索索引？这会从已保存消息重新生成 FTS 索引。")) {
+    if (!window.confirm("重建本地搜索索引？这会从已保存消息重新生成 FTS 和语义索引。")) {
       return;
     }
 
@@ -51,13 +51,17 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
         method: "POST",
         headers: withApiToken()
       });
-      const data = (await response.json()) as { error?: string; indexedMessages?: number };
+      const data = (await response.json()) as {
+        error?: string;
+        indexedMessages?: number;
+        indexedSemanticMessages?: number;
+      };
 
       if (!response.ok) {
         throw new Error(data.error ?? "重建失败");
       }
 
-      setStatus(`已重建 ${data.indexedMessages ?? 0} 条消息索引`);
+      setStatus(`已重建 ${data.indexedMessages ?? 0} 条全文索引，${data.indexedSemanticMessages ?? 0} 条语义索引`);
       router.refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "重建失败");
@@ -77,7 +81,7 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
           className="inline-flex items-center justify-center gap-2 rounded-[5px] border border-[var(--line)] bg-[var(--surface)] px-3 py-2 font-medium transition hover:bg-[var(--surface-subtle)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RefreshCw size={15} strokeWidth={1.8} />
-          <span>{pending === "reindex" ? "重建中" : "重建搜索索引"}</span>
+          <span>{pending === "reindex" ? "重建中" : "重建搜索与语义索引"}</span>
         </button>
         <button
           type="button"
