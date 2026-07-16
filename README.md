@@ -499,3 +499,7 @@ npm run build
 npm run start
 npm run db:reset
 ```
+
+## License
+
+Apache License 2.0. See [LICENSE](./LICENSE).
