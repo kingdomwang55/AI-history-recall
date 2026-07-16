@@ -82,7 +82,7 @@ The registry must reject duplicate IDs and adapters missing `matches`, `discover
 
 - [ ] **Step 4: Load content modules before the content coordinator**
 
-Update `content_scripts[].js` to load constants, protocol, registry, four platform adapters, `incremental-sync.js`, then `content.js`. Keep the existing background service worker unchanged in this task so every intermediate commit remains loadable; Task 3 switches it when `background-entry.js` and its imported worker modules exist.
+Update `content_scripts[].js` to load constants, protocol, registry, `incremental-sync.js`, then the existing `content.js`. Do not reference the four platform adapter files until Task 2 creates them. Keep the existing background service worker unchanged in this task so every intermediate commit remains loadable; Task 3 switches it when `background-entry.js` and its imported worker modules exist.
 
 - [ ] **Step 5: Verify GREEN and commit**
 
@@ -151,7 +151,7 @@ Move same-origin discovery APIs, selectors, URL patterns, and Qwen step discover
 
 - [ ] **Step 4: Reduce `content.js` to coordination**
 
-`content.js` resolves `AIHR_PLATFORMS.forUrl(location.href)`, validates messages, invokes the adapter, and forwards normalized results. It must contain no platform hostnames or selectors.
+After all four adapter files exist, update `content_scripts[].js` to load them between the registry and `incremental-sync.js`. Then reduce `content.js` so it resolves `AIHR_PLATFORMS.forUrl(location.href)`, validates messages, invokes the adapter, and forwards normalized results. It must contain no platform hostnames or selectors.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -160,7 +160,7 @@ Run: `node --test test/extension-platforms.test.mjs test/extension-incremental-s
 Expected: all selected tests pass and `rg -n "chatgpt|gemini|deepseek|qwen|ds-message|chat-round" extension/content.js` returns no platform implementation matches.
 
 ```bash
-git add extension/content.js extension/core/dom.js extension/platforms test/extension-platforms.test.mjs test/fixtures/extension
+git add extension/content.js extension/core/dom.js extension/platforms extension/manifest.json test/extension-platforms.test.mjs test/fixtures/extension
 git commit -m "refactor: isolate extension platform adapters"
 ```
 
