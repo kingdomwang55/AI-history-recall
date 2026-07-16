@@ -148,3 +148,16 @@ test("manifest loads content contracts before the existing coordinator", () => {
   ]);
   assert.equal(manifest.background.service_worker, "background.js");
 });
+
+test("programmatic injection matches the manifest content module order", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(process.cwd(), "extension", "manifest.json"), "utf8"));
+  const background = fs.readFileSync(path.join(process.cwd(), "extension", "background.js"), "utf8");
+  const match = background.match(/function injectContentScript\(tabId\) \{[\s\S]*?files: \[([\s\S]*?)\][\s\S]*?\n\}/);
+  assert.ok(match);
+  const injectedFiles = [...match[1].matchAll(/"([^"]+)"/g)].map((file) => file[1]);
+
+  for (const file of injectedFiles) {
+    assert.equal(fs.existsSync(path.join(process.cwd(), "extension", file)), true);
+  }
+  assert.deepEqual(injectedFiles, manifest.content_scripts[0].js);
+});

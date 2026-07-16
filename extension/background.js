@@ -165,7 +165,10 @@ function updateTab(tabId, updateProperties) {
 }
 
 function injectContentScript(tabId) {
-  return chrome.scripting.executeScript({ target: { tabId }, files: ["incremental-sync.js", "content.js"] });
+  return chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["core/constants.js", "core/protocol.js", "platforms/registry.js", "incremental-sync.js", "content.js"]
+  });
 }
 
 async function ensureContentScriptsInOpenTabs() {
