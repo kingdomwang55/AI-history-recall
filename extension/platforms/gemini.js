@@ -1,6 +1,13 @@
 (() => {
-  const { clean, textFrom, isConversationUrl, clickHistoryRow, discoverHistory, getHistoryScrollElement } =
-    globalThis.AIHR_DOM;
+  const {
+    clean,
+    textFrom,
+    isConversationUrl,
+    clickHistoryRow,
+    discoverHistory,
+    getDiscoveryScrollElement,
+    getHistoryScrollElement
+  } = globalThis.AIHR_DOM;
   const id = "gemini";
   const conversationPattern = /\/app\/[a-zA-Z0-9_-]+/;
   const historyScrollSelectors = [
@@ -113,7 +120,7 @@
   }
 
   function discover(options = {}) {
-    return discoverHistory({ platform: id, options, discoverLinkedHistory, getScrollElement });
+    return discoverHistory({ platform: id, options, discoverLinkedHistory, getScrollElement: getDiscoveryScrollElement });
   }
 
   function diagnostics(request = {}) {

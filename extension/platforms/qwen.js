@@ -7,6 +7,7 @@
     clickableHistoryElement,
     clickHistoryRow: clickGenericHistoryRow,
     discoverHistory,
+    getDiscoveryScrollElement,
     getHistoryScrollElement,
     navigateBackWithSignal
   } = globalThis.AIHR_DOM;
@@ -515,7 +516,7 @@
       platform: id,
       options,
       discoverLinkedHistory,
-      getScrollElement,
+      getScrollElement: () => getDiscoveryScrollElement("sidebar"),
       clickDiscovery: clickDiscoverVisibleRows,
       discoverScannedTitles: discoverVisibleHistoryTitles
     });

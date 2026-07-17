@@ -55,6 +55,19 @@
     return Promise.resolve().then(() => runDiagnostics(request));
   }
 
+  function respondWithDiagnostics(request, sendResponse, options = {}) {
+    const fallbackResult = options.fallbackResult || { ok: false, error: "Unsupported page." };
+    const fallbackError = options.fallbackError || "Diagnostics failed.";
+    runDiagnosticsAsync(request)
+      .then((result) => sendResponse(result || fallbackResult))
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : fallbackError
+        })
+      );
+  }
+
   window.__AI_HISTORY_RECALL_EXTENSION__ = {
     platform: currentAdapter()?.id || null,
     version: EXTENSION_VERSION,
@@ -86,7 +99,8 @@
         signalTimer = null;
         const current = currentAdapter();
         if (!current) return;
-        Promise.resolve(current.diagnostics({ action: "isConversationUrl", url: location.href }))
+        Promise.resolve()
+          .then(() => current.diagnostics({ action: "isConversationUrl", url: location.href }))
           .then((isConversation) => {
             if (!isConversation) return;
             return sendRuntimeMessage({ type: "AIHR_CONVERSATION_ACTIVITY", url: location.href });
@@ -259,12 +273,12 @@
     }
 
     if (message?.type === "AIHR_QWEN_LIST_DIAGNOSTICS") {
-      runDiagnosticsAsync({ action: "listDiagnostics" }).then((result) => sendResponse(result));
+      respondWithDiagnostics({ action: "listDiagnostics" }, sendResponse);
       return true;
     }
 
     if (message?.type === "AIHR_QWEN_PREPARE_HISTORY") {
-      runDiagnosticsAsync({ action: "prepareHistory" }).then((result) => sendResponse(result));
+      respondWithDiagnostics({ action: "prepareHistory" }, sendResponse);
       return true;
     }
 
@@ -306,55 +320,49 @@
     }
 
     if (message?.type === "AIHR_QWEN_VISIBLE_ROWS") {
-      runDiagnosticsAsync({ action: "visibleRows", platform: currentAdapter()?.id || null }).then(
-        (result) => sendResponse(result)
-      );
+      respondWithDiagnostics({ action: "visibleRows", platform: currentAdapter()?.id || null }, sendResponse);
       return true;
     }
 
     if (message?.type === "AIHR_QWEN_CLICK_ROW") {
-      runDiagnosticsAsync({ action: "stepClickHistoryRow", rowKey: message.rowKey, title: message.title })
-        .then((result) => sendResponse(result))
-        .catch((error) =>
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : "Qwen row click failed." })
-        );
+      respondWithDiagnostics(
+        { action: "stepClickHistoryRow", rowKey: message.rowKey, title: message.title },
+        sendResponse,
+        { fallbackError: "Qwen row click failed." }
+      );
       return true;
     }
 
     if (message?.type === "AIHR_QWEN_SCROLL_HISTORY") {
-      runDiagnosticsAsync({ action: "stepScrollHistory", amount: message.amount })
-        .then((result) => sendResponse(result))
-        .catch((error) =>
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : "Qwen history scroll failed." })
-        );
+      respondWithDiagnostics({ action: "stepScrollHistory", amount: message.amount }, sendResponse, {
+        fallbackError: "Qwen history scroll failed."
+      });
       return true;
     }
 
     if (message?.type === "AIHR_VISIBLE_HISTORY_ROWS") {
       const platform = message.platform || currentAdapter()?.id || null;
-      runDiagnosticsAsync({ action: "visibleRows", platform }).then((result) =>
-        sendResponse(result || { ok: true, platform, rows: [] })
-      );
+      respondWithDiagnostics({ action: "visibleRows", platform }, sendResponse, {
+        fallbackResult: { ok: true, platform, rows: [] }
+      });
       return true;
     }
 
     if (message?.type === "AIHR_CLICK_HISTORY_ROW") {
       const platform = message.platform || currentAdapter()?.id || null;
-      runDiagnosticsAsync({ action: "clickHistoryRow", platform, rowKey: message.rowKey, title: message.title })
-        .then((result) => sendResponse(result))
-        .catch((error) =>
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : "History row click failed." })
-        );
+      respondWithDiagnostics(
+        { action: "clickHistoryRow", platform, rowKey: message.rowKey, title: message.title },
+        sendResponse,
+        { fallbackError: "History row click failed." }
+      );
       return true;
     }
 
     if (message?.type === "AIHR_SCROLL_HISTORY") {
       const platform = message.platform || currentAdapter()?.id || null;
-      runDiagnosticsAsync({ action: "scrollHistory", platform, amount: message.amount })
-        .then((result) => sendResponse(result))
-        .catch((error) =>
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : "History scroll failed." })
-        );
+      respondWithDiagnostics({ action: "scrollHistory", platform, amount: message.amount }, sendResponse, {
+        fallbackError: "History scroll failed."
+      });
       return true;
     }
 

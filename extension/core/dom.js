@@ -108,6 +108,21 @@
     );
   }
 
+  function getDiscoveryScrollElement(preferredClassName = "") {
+    return getHistoryScrollElement(
+      [
+        "nav",
+        "aside",
+        "[class*=sidebar]",
+        "[class*=sider]",
+        "[class*=history]",
+        "[class*=conversation]",
+        "[class*=session]"
+      ],
+      preferredClassName
+    );
+  }
+
   async function clickHistoryRow({ platform, getRows, isCurrentConversationUrl, rowKey, title }) {
     const rows = getRows();
     const row = rows.find((candidate) => candidate.key === rowKey) || rows.find((candidate) => candidate.title === title);
@@ -234,6 +249,7 @@
     clickableHistoryElement,
     clickHistoryRow,
     discoverHistory,
+    getDiscoveryScrollElement,
     getHistoryScrollElement,
     navigateBackWithSignal
   });

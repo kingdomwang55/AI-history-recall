@@ -149,10 +149,16 @@ async function loadPlatformFixture(fixture) {
   return adapter;
 }
 
-function loadCoordinator(adapter) {
+function loadCoordinator(adapter, options = {}) {
   let runtimeListener;
+  let observerCallback;
+  const timers = [];
   const window = {
-    setTimeout,
+    setTimeout(callback) {
+      if (!options.manualTimers) return setTimeout(callback, 0);
+      timers.push(callback);
+      return timers.length;
+    },
     postMessage() {}
   };
   const context = vm.createContext({
@@ -173,8 +179,12 @@ function loadCoordinator(adapter) {
     document: { body: {}, title: "Fixture conversation" },
     location: new URL("https://adapter.test/conversation"),
     MutationObserver: class {
+      constructor(callback) {
+        observerCallback = callback;
+      }
       observe() {}
     },
+    Promise: options.Promise || Promise,
     setTimeout,
     window
   });
@@ -186,9 +196,141 @@ function loadCoordinator(adapter) {
   });
 
   return {
-    dispatch(message) {
-      return new Promise((resolve) => runtimeListener(message, {}, resolve));
+    dispatch(message, timeoutMs = 50) {
+      return Promise.race([
+        new Promise((resolve) => runtimeListener(message, {}, resolve)),
+        new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), timeoutMs))
+      ]);
+    },
+    triggerActivity() {
+      observerCallback([{ type: "childList" }]);
+      return timers.shift();
     }
+  };
+}
+
+function createObservedPromise() {
+  const NativePromise = Promise;
+  return class ObservedPromise {
+    constructor(executor) {
+      this.promise = new NativePromise(executor);
+      this.promise.catch(() => undefined);
+    }
+
+    static resolve(value) {
+      return new ObservedPromise((resolve) => resolve(value));
+    }
+
+    static reject(error) {
+      return new ObservedPromise((_resolve, reject) => reject(error));
+    }
+
+    then(onFulfilled, onRejected) {
+      return new ObservedPromise((resolve, reject) => {
+        this.promise.then(onFulfilled, onRejected).then(resolve, reject);
+      });
+    }
+
+    catch(onRejected) {
+      return this.then(undefined, onRejected);
+    }
+  };
+}
+
+function createScrollElement({ className = "", left = 0, textLength = 0 } = {}) {
+  return {
+    className,
+    clientHeight: 200,
+    innerText: "x".repeat(textLength),
+    scrollHeight: 1200,
+    scrollTop: 0,
+    scrollCalls: 0,
+    dispatchEvent() {},
+    getBoundingClientRect() {
+      return { left };
+    },
+    scrollBy() {
+      this.scrollCalls += 1;
+    }
+  };
+}
+
+function createDiscoveryRow(platform, parentElement) {
+  const attributes = {
+    href: "",
+    "aria-label": "",
+    "data-testid": "",
+    "data-test-id": "",
+    "data-react-window-index": platform === "qwen" ? "7" : ""
+  };
+  return {
+    className: "history-row",
+    innerText: "Representative history row",
+    parentElement,
+    textContent: "Representative history row",
+    getAttribute(name) {
+      return attributes[name] || null;
+    },
+    getBoundingClientRect() {
+      return { x: 12, y: 140, width: 240, height: 40 };
+    },
+    querySelector() {
+      return null;
+    }
+  };
+}
+
+function loadDiscoveryAdapter(fixture) {
+  const scoredScroll = createScrollElement({ className: "sidebar", textLength: 2400 });
+  const rowAwareScroll = createScrollElement({ className: "row-parent" });
+  rowAwareScroll.parentElement = null;
+  const rootScroll = createScrollElement({ left: 900 });
+  const row = createDiscoveryRow(fixture.id, rowAwareScroll);
+  const genericRowsSelector =
+    fixture.id === "gemini"
+      ? "a, button, div, [role=button], [data-test-id]"
+      : "a, button, div, [role=button], [data-testid]";
+  const document = {
+    body: {},
+    documentElement: rootScroll,
+    scrollingElement: rootScroll,
+    title: "Discovery fixture",
+    querySelectorAll(selector) {
+      if (selector === "a[href]") return [];
+      if (selector === "nav") return [scoredScroll];
+      if (selector === "[data-react-window-index]" && fixture.id === "qwen") return [row];
+      if (selector === genericRowsSelector && fixture.id !== "qwen") return [row];
+      return [];
+    }
+  };
+  const context = vm.createContext({
+    URL,
+    document,
+    fetch: async () => {
+      throw new Error("API unavailable in discovery regression test.");
+    },
+    location: new URL(fixture.url),
+    setTimeout(callback) {
+      callback();
+      return 1;
+    },
+    window: { innerHeight: 900, innerWidth: 1200 }
+  });
+  context.globalThis = context;
+
+  for (const file of [
+    "extension/platforms/registry.js",
+    "extension/core/dom.js",
+    "extension/incremental-sync.js",
+    `extension/platforms/${fixture.id}.js`
+  ]) {
+    vm.runInContext(fs.readFileSync(path.join(process.cwd(), file), "utf8"), context, { filename: file });
+  }
+
+  return {
+    adapter: context.AIHR_PLATFORMS.forUrl(fixture.url),
+    rowAwareScroll,
+    scoredScroll
   };
 }
 
@@ -266,6 +408,70 @@ test("content coordinator delegates capture, discovery, step discovery, and diag
     ["discover", { maxItems: 25 }, { stepDiscovery: true }],
     ["diagnostics", { action: "visibleRows", platform: "fixture" }]
   ]);
+});
+
+test("generic adapter discovery uses the scored base scroll element for every platform", async () => {
+  for (const fixture of platformFixtures) {
+    const { adapter, rowAwareScroll, scoredScroll } = loadDiscoveryAdapter(fixture);
+
+    const result = await adapter.discover({ maxItems: 2, maxScrolls: 1, stopAfterNoNewScrolls: 2, delayMs: 1200 });
+
+    assert.equal(result.scrollsPerformed, 1, `${fixture.id} should complete one discovery scroll.`);
+    assert.equal(scoredScroll.scrollCalls, 1, `${fixture.id} should use the scored base discovery scroll element.`);
+    assert.equal(rowAwareScroll.scrollCalls, 0, `${fixture.id} should reserve row-aware scrolling for diagnostics.`);
+
+    const diagnostics = await adapter.diagnostics({ action: "scrollHistory", amount: 720 });
+    assert.equal(diagnostics.ok, true);
+    assert.equal(rowAwareScroll.scrollCalls, 1, `${fixture.id} diagnostics should use the row-aware scroll element.`);
+  }
+});
+
+test("content coordinator isolates synchronous and asynchronous diagnostics failures", async () => {
+  const ObservedPromise = createObservedPromise();
+  const routes = [
+    { type: "AIHR_QWEN_LIST_DIAGNOSTICS" },
+    { type: "AIHR_QWEN_PREPARE_HISTORY" },
+    { type: "AIHR_QWEN_VISIBLE_ROWS" },
+    { type: "AIHR_QWEN_CLICK_ROW", rowKey: "1", title: "Row" },
+    { type: "AIHR_QWEN_SCROLL_HISTORY", amount: 720 },
+    { type: "AIHR_VISIBLE_HISTORY_ROWS", platform: "fixture" },
+    { type: "AIHR_CLICK_HISTORY_ROW", platform: "fixture", rowKey: "1", title: "Row" },
+    { type: "AIHR_SCROLL_HISTORY", platform: "fixture", amount: 720 }
+  ];
+
+  for (const [index, message] of routes.entries()) {
+    for (const failureMode of ["sync", "async"]) {
+      const expectedError = `diagnostics failure ${index} ${failureMode}`;
+      const adapter = {
+        id: "fixture",
+        diagnostics() {
+          if (failureMode === "sync") throw new Error(expectedError);
+          return ObservedPromise.reject(new Error(expectedError));
+        }
+      };
+      const coordinator = loadCoordinator(adapter, { Promise: ObservedPromise });
+      const response = await coordinator.dispatch(message);
+
+      assert.equal(response.timedOut, undefined, `${message.type} (${failureMode}) did not send an error response.`);
+      assert.equal(response.ok, false, `${message.type} (${failureMode}) did not report failure.`);
+      assert.equal(typeof response.error, "string", `${message.type} (${failureMode}) omitted its stable error string.`);
+    }
+  }
+});
+
+test("conversation activity observer contains synchronous diagnostics failures", () => {
+  const coordinator = loadCoordinator(
+    {
+      id: "fixture",
+      diagnostics() {
+        throw new Error("activity diagnostics failed");
+      }
+    },
+    { manualTimers: true }
+  );
+
+  const scheduledActivity = coordinator.triggerActivity();
+  assert.doesNotThrow(() => scheduledActivity());
 });
 
 test("manifest and programmatic injection load adapters in the same order", () => {

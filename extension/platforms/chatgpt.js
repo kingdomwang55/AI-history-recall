@@ -1,6 +1,14 @@
 (() => {
-  const { clean, textFrom, sleep, isConversationUrl, clickHistoryRow, discoverHistory, getHistoryScrollElement } =
-    globalThis.AIHR_DOM;
+  const {
+    clean,
+    textFrom,
+    sleep,
+    isConversationUrl,
+    clickHistoryRow,
+    discoverHistory,
+    getDiscoveryScrollElement,
+    getHistoryScrollElement
+  } = globalThis.AIHR_DOM;
   const id = "chatgpt";
   const conversationPattern = /\/c\/[a-zA-Z0-9-]+/;
   const historyScrollSelectors = [
@@ -191,7 +199,7 @@
     } catch {
       // Fall back to sidebar DOM discovery when the private same-origin list is unavailable.
     }
-    return discoverHistory({ platform: id, options, discoverLinkedHistory, getScrollElement });
+    return discoverHistory({ platform: id, options, discoverLinkedHistory, getScrollElement: getDiscoveryScrollElement });
   }
 
   function serializeRows() {
