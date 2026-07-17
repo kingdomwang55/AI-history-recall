@@ -60,6 +60,7 @@ function productionRun(overrides = {}) {
     platformResults: {},
     processing: false,
     processingStartedAt: null,
+    processingToken: null,
     leaseUntil: null,
     currentTarget: null,
     stopRequested: false,
@@ -149,6 +150,7 @@ test("queue restores an expired production capture lease without advancing the t
     productionRun({
       processing: true,
       processingStartedAt: "1970-01-01T00:00:00.001Z",
+      processingToken: "expired-claim",
       leaseUntil: 1,
       currentTarget: {
         platform: "chatgpt",
@@ -165,6 +167,7 @@ test("queue restores an expired production capture lease without advancing the t
   assert.equal(restored.status, "running");
   assert.equal(restored.phase, "capturing");
   assert.equal(restored.processing, false);
+  assert.equal(restored.processingToken, null);
   assert.equal(restored.nextIndex, 0);
   assert.equal(restored.currentTarget, null);
 });
@@ -172,7 +175,11 @@ test("queue restores an expired production capture lease without advancing the t
 test("queue owns initialize, resume, claim, success, and failure snapshots", async () => {
   const context = loadCoreModule("capture-queue.js");
   const storage = memoryStorage(productionRun({ status: "stopped", phase: "stopped", queue: [] }));
-  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(storage, { now: () => 10_000 });
+  const tokens = ["claim-one", "claim-two"];
+  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(storage, {
+    now: () => 10_000,
+    tokenFactory: () => tokens.shift()
+  });
   const targets = productionRun().queue;
 
   let snapshot = await queue.initialize(targets, { pageDelayMs: 5200, pageJitterMs: 3200 });
@@ -184,7 +191,9 @@ test("queue owns initialize, resume, claim, success, and failure snapshots", asy
   assert.equal(snapshot.status, "running");
   assert.equal(snapshot.phase, "capturing");
 
-  snapshot = await queue.claim();
+  let claim = await queue.claim();
+  snapshot = claim.snapshot;
+  assert.equal(claim.token, "claim-one");
   assert.equal(queue.snapshot(), snapshot);
   assert.equal(snapshot.processing, true);
   assert.equal(snapshot.leaseUntil, 190_000);
@@ -196,9 +205,11 @@ test("queue owns initialize, resume, claim, success, and failure snapshots", asy
     total: 2
   });
 
-  snapshot = await queue.succeed({
+  let completion = await queue.succeed(claim, {
     imported: { importedConversations: 1, importedMessages: 3, skippedDuplicates: 2 }
   });
+  snapshot = completion.snapshot;
+  assert.equal(completion.stale, false);
   assert.equal(queue.snapshot(), snapshot);
   assert.equal(snapshot.nextIndex, 1);
   assert.equal(snapshot.processed, 1);
@@ -209,8 +220,10 @@ test("queue owns initialize, resume, claim, success, and failure snapshots", asy
     chatgpt: { newConversations: 1, newMessages: 3 }
   });
 
-  await queue.claim();
-  snapshot = await queue.fail(new Error("capture failed"));
+  claim = await queue.claim();
+  completion = await queue.fail(claim, new Error("capture failed"));
+  snapshot = completion.snapshot;
+  assert.equal(completion.stale, false);
   assert.equal(queue.snapshot(), snapshot);
   assert.equal(storage.snapshot(), snapshot);
   assert.equal(snapshot.nextIndex, 2);
@@ -248,15 +261,62 @@ test("ordinary production claim arms the persistent capture alarm for lease expi
   });
   const queue = context.AIHR_CAPTURE_QUEUE.createQueue(memoryStorage(productionRun()), {
     now: () => 10_000,
+    tokenFactory: () => "watchdog-claim",
     armLease: scheduler.scheduleQueueLease
   });
 
   const claimed = await queue.claim();
 
-  assert.equal(claimed.leaseUntil, 190_000);
+  assert.equal(claimed.token, "watchdog-claim");
+  assert.equal(claimed.snapshot.leaseUntil, 190_000);
   assert.deepEqual(plain(alarms), [
     { name: "aihr_process_capture_queue", alarmInfo: { when: 190_000 } }
   ]);
+});
+
+test("stale claim completion cannot mutate a recovered retry", async () => {
+  const context = loadCoreModule("capture-queue.js");
+  const storage = memoryStorage(productionRun());
+  const tokens = ["claim-a", "claim-b"];
+  let now = 10_000;
+  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(storage, {
+    now: () => now,
+    tokenFactory: () => tokens.shift()
+  });
+
+  const claimA = await queue.claim();
+  assert.equal(claimA.token, "claim-a");
+
+  now = claimA.snapshot.leaseUntil + 1;
+  const recovered = await queue.restore(now);
+  assert.equal(recovered.processingToken, null);
+
+  const claimB = await queue.claim();
+  assert.equal(claimB.token, "claim-b");
+  assert.equal(claimB.target.url, productionRun().queue[0].url);
+
+  const staleSuccess = await queue.succeed(claimA, {
+    imported: { importedConversations: 9, importedMessages: 99, skippedDuplicates: 4 }
+  });
+  assert.equal(staleSuccess.stale, true);
+  assert.equal(staleSuccess.snapshot.processingToken, "claim-b");
+  assert.equal(staleSuccess.snapshot.nextIndex, 0);
+  assert.equal(staleSuccess.snapshot.processed, 0);
+
+  const staleFailure = await queue.fail(claimA, new Error("late failure"));
+  assert.equal(staleFailure.stale, true);
+  assert.equal(staleFailure.snapshot.processingToken, "claim-b");
+  assert.deepEqual(plain(staleFailure.snapshot.failures), []);
+
+  const completed = await queue.succeed(claimB, {
+    imported: { importedConversations: 1, importedMessages: 3, skippedDuplicates: 0 }
+  });
+  assert.equal(completed.stale, false);
+  assert.equal(completed.snapshot.nextIndex, 1);
+  assert.equal(completed.snapshot.processed, 1);
+  assert.equal(completed.snapshot.importedConversations, 1);
+  assert.equal(completed.snapshot.importedMessages, 3);
+  assert.equal(completed.snapshot.processingToken, null);
 });
 
 test("background coordinator delegates persisted queue transitions without a mutable run mirror", () => {
@@ -267,4 +327,6 @@ test("background coordinator delegates persisted queue transitions without a mut
   for (const method of ["initialize", "resume", "claim", "succeed", "fail"]) {
     assert.match(background, new RegExp(`captureQueue\\.${method}\\b`));
   }
+  assert.match(background, /captureQueue\.succeed\(claim,\s*data\)/);
+  assert.match(background, /captureQueue\.fail\(claim,\s*error\)/);
 });

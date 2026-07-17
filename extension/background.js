@@ -759,15 +759,19 @@ async function processQueueStep() {
     return;
   }
 
-  const claimed = await captureQueue.claim();
-  const target = claimed.queue[claimed.nextIndex];
+  const claim = await captureQueue.claim();
+  if (!claim) return;
+  const target = claim.target;
+  let completion;
 
   try {
     const data = await captureTarget(target);
-    await captureQueue.succeed(data);
+    completion = await captureQueue.succeed(claim, data);
   } catch (error) {
-    await captureQueue.fail(error);
+    completion = await captureQueue.fail(claim, error);
   }
+
+  if (completion.stale) return;
 
   const latest = await captureQueue.load();
   if (latest?.status === "running" && latest.phase === "capturing") {
@@ -1421,6 +1425,7 @@ scheduler.onAlarm((alarm) => {
       status: "failed",
       phase: "failed",
       processing: false,
+      processingToken: null,
       error: error instanceof Error ? error.message : "Capture queue failed."
     }).catch(() => undefined);
   });

@@ -7,6 +7,7 @@
   function createQueue(storage, options = {}) {
     const now = options.now || Date.now;
     const leaseMs = options.leaseMs || DEFAULT_LEASE_MS;
+    const tokenFactory = options.tokenFactory || (() => globalThis.crypto.randomUUID());
     let defaultDelayMs = options.defaultDelayMs || DEFAULT_DELAY_MS;
     let defaultJitterMs = options.defaultJitterMs || DEFAULT_JITTER_MS;
     let armLease = options.armLease || (() => undefined);
@@ -76,7 +77,8 @@
           queue: [],
           nextIndex: 0,
           totalTargets: 0,
-          processing: false
+          processing: false,
+          processingToken: null
         });
       }
 
@@ -94,6 +96,10 @@
         discoveryProgress: null,
         nextIndex: 0,
         totalTargets: targets.length,
+        processing: false,
+        processingStartedAt: null,
+        processingToken: null,
+        leaseUntil: null,
         options: {
           pageDelayMs: transitionOptions.pageDelayMs || defaultDelayMs,
           pageJitterMs: transitionOptions.pageJitterMs || defaultJitterMs
@@ -115,8 +121,36 @@
         stopRequested: false,
         processing: false,
         processingStartedAt: null,
+        processingToken: null,
         leaseUntil: null
       });
+    }
+
+    function sameTarget(left, right) {
+      return (
+        left?.platform === right?.platform &&
+        left?.url === right?.url &&
+        left?.title === right?.title
+      );
+    }
+
+    function matchesClaim(state, claim) {
+      const queue = Array.isArray(state?.queue) ? state.queue : [];
+      const targetIndex = Number.isInteger(claim?.targetIndex) ? claim.targetIndex : -1;
+      const target = queue[targetIndex];
+      return Boolean(
+        state?.processing &&
+          typeof claim?.token === "string" &&
+          claim.token &&
+          state.processingToken === claim.token &&
+          state.nextIndex === targetIndex &&
+          sameTarget(target, claim.target) &&
+          sameTarget(state.currentTarget, claim.target)
+      );
+    }
+
+    function completionResult(stale, snapshot) {
+      return { stale, applied: !stale, snapshot };
     }
 
     async function claim() {
@@ -124,13 +158,24 @@
       const queue = Array.isArray(state?.queue) ? state.queue : [];
       const nextIndex = Number(state?.nextIndex) || 0;
       const target = queue[nextIndex];
-      if (!state || state.status !== "running" || state.phase !== "capturing" || !target) return state;
+      if (
+        !state ||
+        state.status !== "running" ||
+        state.phase !== "capturing" ||
+        state.processing ||
+        !target
+      ) {
+        return null;
+      }
 
       const claimedAt = now();
+      const token = tokenFactory();
+      if (typeof token !== "string" || !token) throw new Error("Capture claim token must be a non-empty string.");
       const claimed = await persist({
         ...state,
         processing: true,
         processingStartedAt: new Date(claimedAt).toISOString(),
+        processingToken: token,
         leaseUntil: claimedAt + leaseMs,
         currentTarget: {
           platform: target.platform,
@@ -141,19 +186,20 @@
         }
       });
       await armLease(claimed.leaseUntil);
-      return claimed;
+      return { token, target, targetIndex: nextIndex, snapshot: claimed };
     }
 
-    async function succeed(data) {
-      const state = await current();
+    async function succeed(claim, data) {
+      const state = await load();
+      if (!matchesClaim(state, claim)) return completionResult(true, state);
+
       const queue = Array.isArray(state?.queue) ? state.queue : [];
-      const nextIndex = Number(state?.nextIndex) || 0;
+      const nextIndex = claim.targetIndex;
       const target = queue[nextIndex];
-      if (!state || !target) return state;
 
       const imported = data?.imported || {};
       const platformResult = state.platformResults?.[target.platform] || {};
-      return persist({
+      const snapshot = await persist({
         ...state,
         processed: (state.processed || 0) + 1,
         nextIndex: nextIndex + 1,
@@ -169,19 +215,22 @@
         },
         processing: false,
         processingStartedAt: null,
+        processingToken: null,
         leaseUntil: null,
         currentTarget: null
       });
+      return completionResult(false, snapshot);
     }
 
-    async function fail(error) {
-      const state = await current();
-      const queue = Array.isArray(state?.queue) ? state.queue : [];
-      const nextIndex = Number(state?.nextIndex) || 0;
-      const target = queue[nextIndex];
-      if (!state || !target) return state;
+    async function fail(claim, error) {
+      const state = await load();
+      if (!matchesClaim(state, claim)) return completionResult(true, state);
 
-      return persist({
+      const queue = Array.isArray(state?.queue) ? state.queue : [];
+      const nextIndex = claim.targetIndex;
+      const target = queue[nextIndex];
+
+      const snapshot = await persist({
         ...state,
         processed: (state.processed || 0) + 1,
         nextIndex: nextIndex + 1,
@@ -196,9 +245,11 @@
         ].slice(-80),
         processing: false,
         processingStartedAt: null,
+        processingToken: null,
         leaseUntil: null,
         currentTarget: null
       });
+      return completionResult(false, snapshot);
     }
 
     function requestStop() {
@@ -211,6 +262,7 @@
         phase: "stopped",
         processing: false,
         processingStartedAt: null,
+        processingToken: null,
         leaseUntil: null
       });
     }
@@ -221,6 +273,7 @@
         phase: "completed",
         processing: false,
         processingStartedAt: null,
+        processingToken: null,
         leaseUntil: null,
         currentTarget: null
       });
@@ -244,12 +297,13 @@
           ...state,
           processing: false,
           processingStartedAt: null,
+          processingToken: null,
           leaseUntil: null,
           currentTarget: null
         });
       }
 
-      return persist({ ...state, status: "pending", leaseUntil: null });
+      return persist({ ...state, status: "pending", processingToken: null, leaseUntil: null });
     }
 
     async function clear() {
