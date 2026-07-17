@@ -165,7 +165,22 @@ function migrateDatabase(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_semantic_index_platform_model
     ON semantic_index(source_platform, model);
+
+    CREATE TABLE IF NOT EXISTS health_check_runs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('healthy', 'degraded', 'unavailable')),
+      report_json TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_health_check_runs_generated
+    ON health_check_runs(generated_at DESC);
   `);
+
+  if ((db.pragma("user_version", { simple: true }) as number) < 1) {
+    db.pragma("user_version = 1");
+  }
 
   const discoveryColumns = db
     .prepare("PRAGMA table_info(capture_discovery_runs)")

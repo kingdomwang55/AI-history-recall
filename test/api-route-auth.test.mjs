@@ -8,6 +8,7 @@ import path from "node:path";
 register("./path-alias-loader.mjs", import.meta.url);
 
 const { GET } = await import("../src/app/api/capture/audit/route.ts");
+const healthRoute = await import("../src/app/api/health/route.ts");
 
 function closeDb() {
   if (globalThis.aiHistoryRecallDb) {
@@ -55,4 +56,28 @@ test("capture audit route accepts the shared API token without a Next server", a
   assert.notEqual(response.status, 401);
   assert.equal(response.status, 200);
   assert.equal(Array.isArray(body.audit.platforms), true);
+});
+
+test("health route rejects missing API tokens when configured", async () => {
+  process.env.AIHR_API_TOKEN = "route-secret";
+
+  const response = await healthRoute.GET(new Request("http://localhost/api/health"));
+
+  assert.equal(response.status, 401);
+});
+
+test("health route returns a redacted report with the shared token", async () => {
+  process.env.AIHR_API_TOKEN = "route-secret";
+  useTempDb();
+
+  const response = await healthRoute.GET(
+    new Request("http://localhost/api/health", {
+      headers: { "X-AIHR-API-Token": "route-secret" }
+    })
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(Array.isArray(body.health.checks), true);
+  assert.doesNotMatch(JSON.stringify(body), /route-secret/);
 });
