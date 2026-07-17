@@ -16,13 +16,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_autostart::init(
-                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-                Some(vec!["--autostart"]),
-            ))?;
-            let runtime = AppRuntime::load(app.handle()).map_err(std::io::Error::other)?;
+            app.handle()
+                .plugin(tauri_plugin_autostart::init(
+                    tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                    Some(vec!["--autostart"]),
+                ))
+                .map_err(|error| {
+                    std::io::Error::other(format!("Unable to initialize login startup: {error}"))
+                })?;
+            let runtime = AppRuntime::load(app.handle()).map_err(|error| {
+                std::io::Error::other(format!("Unable to initialize desktop paths: {error}"))
+            })?;
             app.manage(runtime);
-            tray::build_tray(app.handle())?;
+            tray::build_tray(app.handle()).map_err(|error| {
+                std::io::Error::other(format!("Unable to create system tray: {error}"))
+            })?;
             let app_handle = app.handle().clone();
             let autostart = std::env::args().any(|argument| argument == "--autostart");
             tauri::async_runtime::spawn(async move {

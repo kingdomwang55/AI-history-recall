@@ -27,15 +27,21 @@ export function planDesktopResources({ platform = process.platform, arch = proce
   };
 }
 
+export function validateNodeVersion(version) {
+  const normalized = String(version).trim();
+  const major = Number.parseInt(normalized.replace(/^v/, "").split(".")[0], 10);
+  if (major !== DESKTOP_NODE_MAJOR) {
+    throw new Error(`Desktop packaging requires Node 24, received ${normalized || "unknown"}.`);
+  }
+  return major;
+}
+
 export async function validateNodeRuntime(binaryPath) {
   if (!binaryPath) throw new Error("AIHR_DESKTOP_NODE_BINARY must point to a Node 24 runtime.");
   const resolved = path.resolve(binaryPath);
   if (!fs.existsSync(resolved)) throw new Error(`Desktop Node runtime does not exist: ${resolved}`);
   const { stdout } = await execFileAsync(resolved, ["--version"], { timeout: 10_000 });
-  const major = Number.parseInt(stdout.trim().replace(/^v/, "").split(".")[0], 10);
-  if (major !== DESKTOP_NODE_MAJOR) {
-    throw new Error(`Desktop packaging requires Node 24, received ${stdout.trim() || "unknown"}.`);
-  }
+  validateNodeVersion(stdout);
   return resolved;
 }
 

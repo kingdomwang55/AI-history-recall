@@ -105,6 +105,48 @@ npm run dev
 
 推荐优先用专门的 embedding 模型，例如 `embeddinggemma`、`qwen3-embedding`、`nomic-embed-text`、`mxbai-embed-large` 或 `bge-m3`。普通生成模型例如 `gemma4` 主要用于文本/多模态生成，不是 embedding 模型；除非运行时明确提供 embedding 向量接口，否则不建议拿它做语义搜索索引。
 
+## 桌面版安装与发布
+
+桌面版基于 Tauri 2，安装后不需要另行安装 Node.js。首次启动会打开三步设置向导；之后关闭主窗口会销毁 WebView 和 UI 服务，只保留托盘与轻量本地守护进程。托盘菜单可以重新打开窗口、暂停后台采集或彻底退出。启用“登录时启动”后，应用会像 Clash Verge 一样只在托盘后台启动，不主动弹出窗口。
+
+### 开发安装包
+
+构建机需要 Node.js 24、Rust stable 和对应平台的原生打包工具。macOS 生成 DMG：
+
+```bash
+npm ci
+AIHR_DESKTOP_NODE_BINARY="$(node -p 'process.execPath')" npm run desktop:prepare
+npx tauri build --bundles dmg
+```
+
+Windows 请在原生 Windows 环境中运行：
+
+```powershell
+npm ci
+$env:AIHR_DESKTOP_NODE_BINARY = node -p "process.execPath"
+npm run desktop:prepare
+npx tauri build --bundles nsis,msi
+```
+
+产物分别位于 `src-tauri/target/release/bundle/dmg/`、`src-tauri/target/release/bundle/nsis/` 和 `src-tauri/target/release/bundle/msi/`。`.github/workflows/desktop-build.yml` 会在原生 macOS 和 Windows runner 上完成测试、构建并上传保留 14 天的开发安装包；可手动触发，也会在版本 tag 和相关 pull request 上运行。
+
+当前开发安装包没有代码签名。macOS 请先把 DMG 中的应用拖入 `Applications` 再启动；若被 Gatekeeper 拦截，请在 Finder 中右键应用并选择“打开”，或在“系统设置 -> 隐私与安全性”中确认，不要全局关闭 Gatekeeper。Windows SmartScreen 出现警告时，只应对自己构建或来源可信的产物选择“更多信息 -> 仍要运行”。正式分发所需的代码签名、Apple notarization、Windows 签名证书和远程自动更新服务不在当前范围内。
+
+### 首次使用与数据
+
+1. 在设置向导中确认数据目录。macOS 默认位于 `~/Library/Application Support/com.aihistoryrecall.desktop/`，Windows 默认位于 `%APPDATA%\com.aihistoryrecall.desktop\`。
+2. 在扩展配对步骤点击“打开扩展目录”，或按页面显示的绝对路径，在 `chrome://extensions` 中选择“加载已解压的扩展程序”。安装版应使用应用资源目录中的扩展，不要继续使用旧源码或旧 `target/debug` 副本。
+3. 扩展显示 `extension v0.1.44 / desktop-websocket-20260717` 后回到应用检查连接。固定守护端口仍是 `127.0.0.1:32145`。
+4. 设置页始终可以从左侧导航的“设置”进入，“重新打开设置向导”可再次进入扩展配对步骤。
+
+设置页提供 SQLite 备份下载与恢复；恢复前会校验数据库并保留回滚副本。升级、迁移或批量导入前建议先下载备份。默认不开启外部 embedding 和生成模型，摘要、标签与相似对话先使用内置本地规则；只有用户显式配置并启用模型后才会访问相应服务。
+
+发布模式下的五分钟纯托盘实测预算为：平均 CPU `<0.5%`、组合 RSS `<=120 MB`、数据库调度唤醒 `<=5`、未配置外连 `0`。D5 实测为平均 CPU `0.253%`、峰值 RSS `105.8 MB`、唤醒 `5`、外连 `0`。复测命令：
+
+```bash
+npm run desktop:measure-idle -- --duration-ms 300000 --interval-ms 5000
+```
+
 ## 使用
 
 1. 打开首页查看本地数据概览。
@@ -531,14 +573,13 @@ data/
 - 支持 ChatGPT 官方导出 `conversations.json`
 - 支持 Claude 官方导出
 - 支持 DeepSeek 历史记录导出
-- 更好的中文分词搜索
-- embedding 模型健康检查和 UI 配置页
-- 自动总结对话
 - 按项目聚类和问题资产分类
 - 通义千问官方导出格式解析
 - 平台页面结构变化后的 adapter/selector 维护与诊断工具
 - 对历史消息编辑、重新生成答案和分支对话做冲突感知合并；当前无稳定重叠时会保守跳过，避免污染原记录
 - 在 UI 中开放每个平台独立的同步周期与限速预设；当前只提供统一的后台暂停/恢复
+- 语义搜索质量基准集与模型效果对比
+- 正式代码签名、公证和可回滚自动更新
 
 ## 常用命令
 
@@ -547,7 +588,12 @@ npm run dev
 npm run build
 npm run start
 npm run db:reset
+npm run desktop:prepare
+npm run desktop:build
+npm run desktop:measure-idle
 ```
+
+`npm run desktop:build` 会先重新生成 UI 与 sidecar，避免把旧资源装进新安装包；需要限制安装包类型时可直接执行上文的 `npx tauri build --bundles ...`。
 
 ## License
 

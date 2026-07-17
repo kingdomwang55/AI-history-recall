@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "desktop:prepare": "node scripts/prepare-desktop-sidecar.mjs",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:build": "npm run desktop:prepare && tauri build",
     "desktop:measure-idle": "node scripts/measure-desktop-idle.mjs",
     "start": "next start -H 127.0.0.1",
     "lint": "eslint .",
@@ -43,5 +43,11 @@
   },
   "overrides": {
     "postcss": "8.5.16"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.25.12": true,
+    "sharp@0.34.5": true,
+    "unrs-resolver@1.12.2": true
   }
 }

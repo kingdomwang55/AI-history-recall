@@ -40,11 +40,11 @@ impl AppRuntime {
         let data_dir = app
             .path()
             .app_data_dir()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| format!("app data directory: {error}"))?;
         let resource_dir = app
             .path()
             .resource_dir()
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| format!("packaged resource directory: {error}"))?;
         fs::create_dir_all(&data_dir).map_err(|error| error.to_string())?;
         restrict_directory(&data_dir)?;
         let config_path = data_dir.join("desktop.json");
