@@ -10,6 +10,7 @@ export default defineConfig([
     "node_modules/**",
     "next-env.d.ts",
     "src-tauri/binaries/**",
-    "src-tauri/resources/**"
+    "src-tauri/resources/**",
+    "src-tauri/target/**"
   ])
 ]);

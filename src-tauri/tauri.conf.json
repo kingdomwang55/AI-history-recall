@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI History Recall",
+  "version": "0.1.0",
+  "identifier": "com.aihistoryrecall.desktop",
+  "build": {
+    "frontendDist": "../public"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/aihr-node"
+    ],
+    "resources": [
+      "resources/daemon",
+      "resources/ui"
+    ]
+  }
+}
+
