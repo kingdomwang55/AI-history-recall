@@ -41,8 +41,8 @@ test("background service worker is self-contained during Chrome registration", (
 });
 
 test("DeepSeek discovery marks the pinned group as outside the recent known streak", () => {
-  const content = fs.readFileSync(path.join(process.cwd(), "extension", "content.js"), "utf8");
+  const adapter = fs.readFileSync(path.join(process.cwd(), "extension", "platforms", "deepseek.js"), "utf8");
 
-  assert.match(content, /ignoreKnownStreak/);
-  assert.match(content, /deepSeekHistorySection/);
+  assert.match(adapter, /ignoreKnownStreak/);
+  assert.match(adapter, /deepSeekHistorySection/);
 });

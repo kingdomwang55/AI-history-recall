@@ -143,6 +143,11 @@ test("manifest loads content contracts before the existing coordinator", () => {
     "core/constants.js",
     "core/protocol.js",
     "platforms/registry.js",
+    "core/dom.js",
+    "platforms/chatgpt.js",
+    "platforms/gemini.js",
+    "platforms/deepseek.js",
+    "platforms/qwen.js",
     "incremental-sync.js",
     "content.js"
   ]);
