@@ -8,6 +8,8 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     "node_modules/**",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    "src-tauri/binaries/**",
+    "src-tauri/resources/**"
   ])
 ]);

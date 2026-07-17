@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --webpack -H 127.0.0.1",
     "build": "next build --webpack",
+    "desktop:prepare": "node scripts/prepare-desktop-sidecar.mjs",
     "start": "next start -H 127.0.0.1",
     "lint": "eslint .",
     "test": "node --test test/*.test.mjs",
@@ -28,6 +29,7 @@
     "@types/react-dom": "19.2.3",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.2.10",
+    "esbuild": "^0.25.0",
     "tailwindcss": "4.3.2",
     "typescript": "^5.9.3"
   },
