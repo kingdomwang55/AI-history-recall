@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "AI History Recall Capture",
-  "version": "0.1.42",
+  "version": "0.1.43",
   "description": "Capture the current logged-in AI conversation into local AI History Recall.",
   "permissions": ["activeTab", "storage", "tabs", "windows", "alarms", "scripting"],
   "host_permissions": [
-    "http://localhost:3000/*",
+    "http://localhost/*",
     "http://127.0.0.1:32145/*",
-    "http://127.0.0.1:3000/*",
+    "http://127.0.0.1/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://gemini.google.com/*",
@@ -31,8 +31,8 @@
         "https://chat.deepseek.com/*",
         "https://www.qianwen.com/*",
         "https://qianwen.com/*",
-        "http://localhost:3000/*",
-        "http://127.0.0.1:3000/*"
+        "http://localhost/*",
+        "http://127.0.0.1/*"
       ],
       "js": [
         "core/constants.js",

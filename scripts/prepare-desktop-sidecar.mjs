@@ -91,6 +91,8 @@ export async function prepareDesktopResources(options = {}) {
   if (fs.existsSync(path.join(rootDir, "public"))) {
     copyDirectory(path.join(rootDir, "public"), path.join(uiDir, "public"));
   }
+  copyDirectory(path.join(rootDir, "extension"), path.join(resourcesDir, "extension"));
+  fs.rmSync(path.join(resourcesDir, "extension", "config.js"), { force: true });
   fs.copyFileSync(path.join(rootDir, "desktop", "ui-entry.mjs"), path.join(uiDir, "launcher.mjs"));
   for (const packageName of ["better-sqlite3", "bindings", "file-uri-to-path"]) {
     copyDirectory(

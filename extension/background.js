@@ -14,8 +14,8 @@ const {
   removeWindow,
   waitForTabComplete
 } = chromeApi;
-const EXTENSION_VERSION = "0.1.42";
-const EXTENSION_BUILD_ID = "deepseek-pinned-groups-20260715";
+const EXTENSION_VERSION = "0.1.43";
+const EXTENSION_BUILD_ID = "desktop-pairing-20260717";
 const DEFAULT_DELAY_MS = scheduler.delays.capture;
 const DEFAULT_JITTER_MS = scheduler.delays.captureJitter;
 const DISCOVERY_MESSAGE_TIMEOUT_MS = 180000;
@@ -123,8 +123,8 @@ function injectContentScript(tabId) {
 async function ensureContentScriptsInOpenTabs() {
   const tabs = await queryTabs({
     url: [
-      "http://localhost:3000/*",
-      "http://127.0.0.1:3000/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*",
       "https://chatgpt.com/*",
       "https://chat.openai.com/*",
       "https://gemini.google.com/*",
@@ -1313,6 +1313,15 @@ chromeApi.onMessage((message, sender, sendResponse) => {
       .then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) =>
         sendResponse({ ok: false, error: error instanceof Error ? error.message : "Background sync update failed." })
+      );
+    return true;
+  }
+
+  if (message?.type === "AIHR_SET_API_TOKEN") {
+    globalThis.AIHR_API.setToken(message.token)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Pairing failed." })
       );
     return true;
   }

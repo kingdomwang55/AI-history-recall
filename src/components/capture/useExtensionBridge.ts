@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ExtensionRunStatus } from "@/components/capture/capture-types";
 
-const expectedExtensionVersion = "0.1.42";
-const expectedExtensionBuildId = "deepseek-pinned-groups-20260715";
+const expectedExtensionVersion = "0.1.43";
+const expectedExtensionBuildId = "desktop-pairing-20260717";
 
 export function extensionNeedsUpdate(version?: string, buildId?: string) {
   if (!version) return false;

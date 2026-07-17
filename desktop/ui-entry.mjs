@@ -29,6 +29,26 @@ export function uiEnvironment(config, address) {
   };
 }
 
+function applyPersistedSettings(dbPath) {
+  try {
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(dbPath), "desktop-settings.json"), "utf8")
+    );
+    if (settings.embeddingProvider && settings.embeddingProvider !== "disabled") {
+      process.env.AIHR_EMBEDDING_PROVIDER = settings.embeddingProvider;
+      process.env.AIHR_EMBEDDING_MODEL = settings.embeddingModel || "";
+      process.env.AIHR_EMBEDDING_BASE_URL = settings.embeddingBaseUrl || "";
+      process.env.AIHR_EMBEDDING_API_KEY = settings.embeddingApiKey || "";
+    }
+    process.env.AIHR_KNOWLEDGE_MODEL_ENABLED = String(settings.knowledgeModelEnabled === true);
+    process.env.LLM_MODEL = settings.knowledgeModel || "";
+    process.env.LLM_BASE_URL = settings.knowledgeBaseUrl || "";
+    process.env.LLM_API_KEY = settings.knowledgeApiKey || "";
+  } catch {
+    // First run has no persisted desktop settings.
+  }
+}
+
 async function waitUntilListening(host, port) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
@@ -60,6 +80,7 @@ export async function startUi(options = {}) {
   );
   await reservation.release();
   Object.assign(process.env, environment);
+  applyPersistedSettings(environment.AIHR_DB_PATH);
   process.chdir(uiDir);
   await import(pathToFileURL(serverEntry).href);
   await waitUntilListening(reservation.host, reservation.port);

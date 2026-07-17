@@ -25,10 +25,10 @@ test("extension manifest, scripts, and web bridge advertise the same build", () 
     "utf8"
   );
 
-  assert.equal(manifest.version, "0.1.42");
+  assert.equal(manifest.version, "0.1.43");
   for (const source of [background, content, bridge]) {
-    assert.match(source, /0\.1\.42/);
-    assert.match(source, /deepseek-pinned-groups-20260715/);
+    assert.match(source, /0\.1\.43/);
+    assert.match(source, /desktop-pairing-20260717/);
   }
 });
 

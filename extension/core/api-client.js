@@ -65,6 +65,14 @@
       return tokenReady;
     }
 
+    async function setToken(value) {
+      const token = typeof value === "string" ? value.trim() : "";
+      if (!token || token.length > 512) throw new Error("Invalid local API token.");
+      if (storage) await storage.set({ [TOKEN_KEY]: token });
+      tokenReady = Promise.resolve(token);
+      return token;
+    }
+
     async function request(path, requestOptions = {}) {
       if (!fetchImpl) throw new Error("Fetch is unavailable.");
       if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) {
@@ -104,7 +112,7 @@
       throw lastError || new Error("No local API endpoint is configured.");
     }
 
-    return Object.freeze({ request });
+    return Object.freeze({ request, setToken });
   }
 
   const defaultClient = createApiClient({
@@ -116,6 +124,7 @@
 
   globalThis.AIHR_API = Object.freeze({
     createApiClient,
+    setToken: defaultClient.setToken,
     request: defaultClient.request
   });
 })();

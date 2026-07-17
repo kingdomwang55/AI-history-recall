@@ -76,14 +76,14 @@ http://localhost:3000/api/extension/discovery-run
 
 停止任务不会删除队列。需要继续时点击 `Resume Queue`；需要重新开始新任务时点击 `Clear Status` 后再启动。
 
-修改 `manifest.json`、`background.js`、`content.js` 或 `incremental-sync.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的本地应用页和平台页，无需刷新 `/capture`。Qwen 优先通过当前登录页面的 session list API 低频分页，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用时回退 DOM 滚动。当前 build 应显示为 `extension v0.1.42 / deepseek-pinned-groups-20260715`。
+修改 `manifest.json`、`background.js`、`content.js` 或 `incremental-sync.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的本地应用页和平台页，无需刷新 `/capture`。Qwen 优先通过当前登录页面的 session list API 低频分页，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用时回退 DOM 滚动。当前 build 应显示为 `extension v0.1.43 / desktop-pairing-20260717`。
 
 ## 从应用页面启动
 
 扩展也会常驻在本地应用页面：
 
 ```text
-http://localhost:3000/*
+http://127.0.0.1/*
 ```
 
 因此你可以在应用的 `/capture` 页面使用 “Chrome 扩展采集 Agent”：

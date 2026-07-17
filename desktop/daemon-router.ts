@@ -8,6 +8,7 @@ import * as planRoute from "@/app/api/extension/plan/route";
 import * as syncRoute from "@/app/api/extension/sync-state/route";
 import * as knowledgeProcessRoute from "@/app/api/knowledge/process/route";
 import * as knowledgeStatusRoute from "@/app/api/knowledge/status/route";
+import * as desktopStatusRoute from "@/app/api/desktop/status/route";
 
 const MAX_BODY_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -23,7 +24,8 @@ const routes = new Map<string, RouteMethods>([
   ["/api/extension/plan", { POST: planRoute.POST }],
   ["/api/extension/sync-state", { GET: syncRoute.GET, POST: syncRoute.POST }],
   ["/api/knowledge/process", { POST: knowledgeProcessRoute.POST }],
-  ["/api/knowledge/status", { GET: knowledgeStatusRoute.GET }]
+  ["/api/knowledge/status", { GET: knowledgeStatusRoute.GET }],
+  ["/api/desktop/status", { GET: desktopStatusRoute.GET, POST: desktopStatusRoute.POST }]
 ]);
 
 function isLoopbackRemote(address: string | undefined) {

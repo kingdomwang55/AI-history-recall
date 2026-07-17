@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createDaemonRouter } from "./daemon-router.ts";
 import { configureDesktopRuntime, type DesktopRuntimeConfig } from "./runtime-config.ts";
 import { processKnowledgeBatch } from "@/services/knowledge-worker-service";
+import { applyDesktopSettingsEnvironment, getDesktopSettings } from "@/services/desktop-settings-service";
 
 export interface StartDaemonOptions extends DesktopRuntimeConfig {
   scheduler?: boolean;
@@ -18,6 +19,7 @@ export interface RunningDaemon {
 
 export async function startDaemon(options: StartDaemonOptions): Promise<RunningDaemon> {
   const config = configureDesktopRuntime(options);
+  applyDesktopSettingsEnvironment();
   let closing: Promise<void> | null = null;
   let scheduler: ReturnType<typeof setInterval> | null = null;
   const server = http.createServer();
@@ -46,7 +48,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
   });
   if (options.scheduler !== false) {
     scheduler = setInterval(() => {
-      processKnowledgeBatch({ limit: 2 }).catch(() => undefined);
+      const settings = applyDesktopSettingsEnvironment(getDesktopSettings());
+      if (settings.knowledgeProcessing) processKnowledgeBatch({ limit: 2 }).catch(() => undefined);
     }, 60_000);
     scheduler.unref();
   }

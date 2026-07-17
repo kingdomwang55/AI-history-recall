@@ -4,6 +4,7 @@ import { KnowledgeHeartbeat } from "@/components/KnowledgeHeartbeat";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  applicationName: "AI History Recall",
   title: "AI History Recall",
   description: "Local-first AI conversation recall tool"
 };

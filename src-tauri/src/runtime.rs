@@ -128,6 +128,7 @@ impl AppRuntime {
         app: &AppHandle<R>,
         route: &str,
     ) -> Result<(), String> {
+        let route = self.initial_route(route);
         if let Some(window) = app.get_webview_window("main") {
             if route != "/" {
                 let port = self.ui_port()?;
@@ -149,6 +150,7 @@ impl AppRuntime {
             .parse()
             .map_err(|error| format!("Invalid UI URL: {error}"))?;
         WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            .initialization_script(self.bootstrap_script())
             .title("AI History Recall")
             .inner_size(1180.0, 780.0)
             .min_inner_size(840.0, 600.0)
@@ -213,6 +215,19 @@ impl AppRuntime {
             .daemon_running())
     }
 
+    pub fn close_to_tray(&self) -> bool {
+        let settings_path = self.data_dir.join("desktop-settings.json");
+        fs::read(settings_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| {
+                value
+                    .get("closeToTray")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .unwrap_or(true)
+    }
+
     pub fn sync_now(&self) -> Result<(), String> {
         let port = self.daemon_port()?;
         ureq::post(format!("http://127.0.0.1:{port}/api/knowledge/process"))
@@ -264,8 +279,33 @@ impl AppRuntime {
                     .into_owned(),
             ),
             ("AIHR_API_TOKEN".into(), self.config.token.clone()),
+            (
+                "AIHR_DESKTOP_RESOURCE_DIR".into(),
+                self.resource_dir.to_string_lossy().into_owned(),
+            ),
         ])
     }
+
+    fn initial_route<'a>(&self, requested: &'a str) -> &'a str {
+        let state = fs::read(self.data_dir.join("onboarding.json")).ok();
+        if requested == "/" && !onboarding_is_complete(state.as_deref()) {
+            "/onboarding"
+        } else {
+            requested
+        }
+    }
+
+    fn bootstrap_script(&self) -> String {
+        let token = serde_json::to_string(&self.config.token).expect("token must serialize");
+        format!("window.localStorage.setItem('aihrLocalApiToken', {token});")
+    }
+}
+
+fn onboarding_is_complete(value: Option<&[u8]>) -> bool {
+    value
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .and_then(|state| state.get("firstData").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
 }
 
 fn lock_error<T>(error: std::sync::PoisonError<T>) -> String {
@@ -312,4 +352,18 @@ fn restrict_windows_acl(path: &Path, directory: bool) {
         .arg(path)
         .args(["/inheritance:r", "/grant:r", &grant])
         .status();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::onboarding_is_complete;
+
+    #[test]
+    fn partial_onboarding_resumes_until_first_data_is_complete() {
+        assert!(!onboarding_is_complete(None));
+        assert!(!onboarding_is_complete(Some(br#"{"storage":true}"#)));
+        assert!(onboarding_is_complete(Some(
+            br#"{"storage":true,"extension":true,"firstData":true}"#
+        )));
+    }
 }

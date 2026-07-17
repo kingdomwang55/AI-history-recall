@@ -1,6 +1,6 @@
 (() => {
-  const EXTENSION_VERSION = "0.1.42";
-  const EXTENSION_BUILD_ID = "deepseek-pinned-groups-20260715";
+  const EXTENSION_VERSION = "0.1.43";
+  const EXTENSION_BUILD_ID = "desktop-pairing-20260717";
 
   function currentAdapter() {
     if (!globalThis.AIHR_PLATFORMS) return null;
@@ -10,7 +10,12 @@
   function isLocalAppUrl(url) {
     try {
       const parsed = new URL(url);
-      return (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.port === "3000";
+      const loopback = parsed.protocol === "http:" &&
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+      const appMarker = typeof document.querySelector === "function"
+        ? document.querySelector('meta[name="application-name"][content="AI History Recall"]')
+        : null;
+      return loopback && (parsed.port === "3000" || Boolean(appMarker));
     } catch {
       return false;
     }
@@ -220,6 +225,23 @@
               type: "AIHR_WEB_BACKGROUND_SYNC_RESULT",
               ok: false,
               error: error instanceof Error ? error.message : "Background sync update failed."
+            })
+          );
+      }
+
+      if (message.type === "AIHR_WEB_PAIR_TOKEN") {
+        const token = typeof message.token === "string" ? message.token.trim() : "";
+        if (!token || token.length > 512) {
+          respond({ type: "AIHR_WEB_PAIR_RESULT", ok: false, error: "Invalid pairing token." });
+          return;
+        }
+        sendRuntimeMessage({ type: "AIHR_SET_API_TOKEN", token })
+          .then((result) => respond({ type: "AIHR_WEB_PAIR_RESULT", ok: result?.ok !== false, result }))
+          .catch((error) =>
+            respond({
+              type: "AIHR_WEB_PAIR_RESULT",
+              ok: false,
+              error: error instanceof Error ? error.message : "Pairing failed."
             })
           );
       }

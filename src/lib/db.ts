@@ -58,6 +58,12 @@ export function getDb() {
   return globalForDb.aiHistoryRecallDb;
 }
 
+export function closeDb() {
+  if (!globalForDb.aiHistoryRecallDb) return;
+  globalForDb.aiHistoryRecallDb.close();
+  delete globalForDb.aiHistoryRecallDb;
+}
+
 function initializeDatabase(db: Database.Database) {
   const schemaPath = path.join(process.cwd(), "src", "db", "schema.sql");
   const schema = fs.readFileSync(schemaPath, "utf8");

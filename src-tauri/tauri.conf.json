@@ -20,8 +20,8 @@
     ],
     "resources": [
       "resources/daemon",
-      "resources/ui"
+      "resources/ui",
+      "resources/extension"
     ]
   }
 }
-

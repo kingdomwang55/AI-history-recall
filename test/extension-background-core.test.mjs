@@ -39,8 +39,8 @@ function memoryStorage(initial) {
 function productionRun(overrides = {}) {
   return {
     id: "run-1",
-    extensionVersion: "0.1.42",
-    extensionBuildId: "deepseek-pinned-groups-20260715",
+    extensionVersion: "0.1.43",
+    extensionBuildId: "desktop-pairing-20260717",
     status: "running",
     phase: "capturing",
     startedAt: "2026-07-17T00:00:00.000Z",

@@ -52,6 +52,12 @@ pub fn run() {
                 let window = window.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Some(runtime) = app.try_state::<AppRuntime>() {
+                        if !runtime.close_to_tray() {
+                            let _ = runtime.shutdown();
+                            let _ = window.destroy();
+                            app.exit(0);
+                            return;
+                        }
                         let _ = runtime.close_main_window();
                     }
                     let _ = window.destroy();
