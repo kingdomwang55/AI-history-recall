@@ -33,9 +33,17 @@ test("extension manifest, scripts, and web bridge advertise the same build", () 
 });
 
 test("background service worker is self-contained during Chrome registration", () => {
+  const entry = fs.readFileSync(path.join(process.cwd(), "extension", "background-entry.js"), "utf8");
   const background = fs.readFileSync(path.join(process.cwd(), "extension", "background.js"), "utf8");
 
-  assert.doesNotMatch(background, /importScripts\s*\(/);
+  assert.match(entry, /importScripts\s*\(/);
+  assert.match(entry, /"core\/constants\.js"/);
+  assert.match(entry, /"core\/chrome-api\.js"/);
+  assert.match(entry, /"core\/api-client\.js"/);
+  assert.match(entry, /"core\/capture-queue\.js"/);
+  assert.match(entry, /"core\/scheduler\.js"/);
+  assert.match(entry, /"background\.js"/);
+  assert.doesNotMatch(entry, /^\s*(?:import|export)\s/m);
   assert.match(background, /function createIncrementalTracker/);
   assert.match(background, /function nextSnapshotAt/);
 });

@@ -151,7 +151,7 @@ test("manifest loads content contracts before the existing coordinator", () => {
     "incremental-sync.js",
     "content.js"
   ]);
-  assert.equal(manifest.background.service_worker, "background.js");
+  assert.equal(manifest.background.service_worker, "background-entry.js");
 });
 
 test("programmatic injection matches the manifest content module order", () => {

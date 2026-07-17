@@ -1,47 +1,29 @@
-const LOCAL_IMPORT_URL = "http://localhost:3000/api/extension/capture-page";
-const LOCAL_DISCOVERY_URL = "http://localhost:3000/api/extension/discovery-run";
-const LOCAL_FILTER_TARGETS_URL = "http://localhost:3000/api/extension/filter-targets";
-const LOCAL_AUDIT_URL = "http://localhost:3000/api/capture/audit";
-const LOCAL_SYNC_STATE_URL = "http://localhost:3000/api/extension/sync-state";
+const chromeApi = globalThis.AIHR_CHROME_API;
+const api = globalThis.AIHR_API;
+const captureQueue = globalThis.AIHR_CAPTURE_QUEUE;
+const scheduler = globalThis.AIHR_SCHEDULER;
+const {
+  sendTabMessage,
+  createTab,
+  queryTabs,
+  updateTab,
+  getTab,
+  removeTab,
+  getWindow,
+  createWindow,
+  removeWindow,
+  waitForTabComplete
+} = chromeApi;
 const EXTENSION_VERSION = "0.1.42";
 const EXTENSION_BUILD_ID = "deepseek-pinned-groups-20260715";
-async function loadLocalApiToken() {
-  const stored = await chrome.storage.local.get("aihrLocalApiToken");
-  if (typeof stored.aihrLocalApiToken === "string") return stored.aihrLocalApiToken.trim();
-
-  try {
-    const response = await fetch(chrome.runtime.getURL("config.js"));
-    if (!response.ok) return "";
-    const source = await response.text();
-    const match = source.match(/AIHR_LOCAL_API_TOKEN\s*=\s*("(?:[^"\\]|\\.)*")/);
-    const token = match ? JSON.parse(match[1]).trim() : "";
-    if (token) await chrome.storage.local.set({ aihrLocalApiToken: token });
-    return token;
-  } catch {
-    return "";
-  }
-}
-
-const localApiTokenReady = loadLocalApiToken();
-
-async function localApiHeaders(headers = {}) {
-  const token = await localApiTokenReady;
-  return token
-    ? { ...headers, "X-AIHR-API-Token": token }
-    : headers;
-}
-const DEFAULT_DELAY_MS = 5200;
-const DEFAULT_JITTER_MS = 3200;
-const DEFAULT_MESSAGE_TIMEOUT_MS = 60000;
+const DEFAULT_DELAY_MS = scheduler.delays.capture;
+const DEFAULT_JITTER_MS = scheduler.delays.captureJitter;
 const DISCOVERY_MESSAGE_TIMEOUT_MS = 180000;
 const QWEN_DISCOVERY_MESSAGE_TIMEOUT_MS = 900000;
 const QWEN_STEP_TIMEOUT_MS = 18000;
-const CAPTURE_ALARM = "aihr_process_capture_queue";
-const AUTO_PILOT_ALARM = "aihr_background_autopilot";
-const SNAPSHOT_ALARM_PREFIX = "aihr_snapshot_";
-const AUTO_PILOT_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const AUTO_PILOT_RETRY_MS = 15 * 60 * 1000;
-const SNAPSHOT_COOLDOWN_MS = 10 * 60 * 1000;
+const AUTO_PILOT_INTERVAL_MS = scheduler.delays.autoPilotInterval;
+const AUTO_PILOT_RETRY_MS = scheduler.delays.autoPilotRetry;
+const SNAPSHOT_COOLDOWN_MS = scheduler.delays.snapshotCooldown;
 const PLATFORM_HISTORY_URLS = {
   chatgpt: "https://chatgpt.com/",
   gemini: "https://gemini.google.com/app",
@@ -56,7 +38,7 @@ function sleep(ms) {
 }
 
 function randomDelay(baseMs = DEFAULT_DELAY_MS, jitterMs = DEFAULT_JITTER_MS) {
-  return baseMs + Math.floor(Math.random() * jitterMs);
+  return scheduler.randomDelay(baseMs, jitterMs);
 }
 
 function createIncrementalTracker(options = {}) {
@@ -109,63 +91,14 @@ function nextSnapshotAt(options = {}) {
   const cooldownMs = Math.max(Number(options.cooldownMs) || 0, 0);
   const minDelayMs = Math.max(Number(options.minDelayMs) || 0, 0);
   const jitterMs = Math.max(Number(options.jitterMs) || 0, 0);
-  const random = typeof options.random === "function" ? options.random : Math.random;
+  const random = typeof options.random === "function" ? options.random : scheduler.random;
   const quietDelayAt = now + minDelayMs + Math.floor(random() * jitterMs);
   const cooldownAt = lastCapturedAt > 0 ? lastCapturedAt + cooldownMs : 0;
   return Math.max(quietDelayAt, cooldownAt);
 }
 
-function sendTabMessage(tabId, message, timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error("Timed out waiting for content script response."));
-    }, timeoutMs);
-
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
-function createTab(options) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.create(options, (tab) => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(tab);
-    });
-  });
-}
-
-function queryTabs(queryInfo) {
-  return new Promise((resolve) => {
-    chrome.tabs.query(queryInfo, (tabs) => resolve(tabs || []));
-  });
-}
-
-function updateTab(tabId, updateProperties) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.update(tabId, updateProperties, (tab) => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(tab);
-    });
-  });
-}
-
 function injectContentScript(tabId) {
-  return chrome.scripting.executeScript({
+  return chromeApi.executeScript({
     target: { tabId },
     files: [
       "core/constants.js",
@@ -206,16 +139,6 @@ async function ensureContentScriptsInOpenTabs() {
   );
 }
 
-function getWindow(windowId) {
-  return new Promise((resolve, reject) => {
-    chrome.windows.get(windowId, (browserWindow) => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(browserWindow);
-    });
-  });
-}
-
 async function findLoadedQwenTab() {
   const tabs = await queryTabs({ url: ["https://www.qianwen.com/*", "https://qianwen.com/*"] });
   const candidates = [];
@@ -243,63 +166,6 @@ async function findLoadedQwenTab() {
   )[0];
 }
 
-function removeTab(tabId) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.remove(tabId, () => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve();
-    });
-  });
-}
-
-function createWindow(options) {
-  return new Promise((resolve, reject) => {
-    chrome.windows.create(options, (createdWindow) => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(createdWindow);
-    });
-  });
-}
-
-function removeWindow(windowId) {
-  return new Promise((resolve, reject) => {
-    chrome.windows.remove(windowId, () => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve();
-    });
-  });
-}
-
-function waitForTabComplete(tabId, timeoutMs = 45000) {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error("Timed out waiting for tab load."));
-    }, timeoutMs);
-
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }
-
-    chrome.tabs.onUpdated.addListener(listener);
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError) return;
-      if (tab.status === "complete" || Date.now() - started > timeoutMs) {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    });
-  });
-}
-
 async function saveStatus(patch) {
   activeRun = {
     ...activeRun,
@@ -308,12 +174,11 @@ async function saveStatus(patch) {
     ...patch,
     updatedAt: new Date().toISOString()
   };
-  await chrome.storage.local.set({ aihrActiveRun: activeRun });
+  await captureQueue.write(activeRun);
 }
 
 async function loadStatus() {
-  const result = await chrome.storage.local.get("aihrActiveRun");
-  activeRun = result.aihrActiveRun || activeRun;
+  activeRun = (await captureQueue.read()) || activeRun;
   if (activeRun) {
     activeRun.extensionVersion = activeRun.extensionVersion || EXTENSION_VERSION;
     activeRun.extensionBuildId = activeRun.extensionBuildId || EXTENSION_BUILD_ID;
@@ -331,16 +196,10 @@ function idleStatus() {
   };
 }
 
-function scheduleQueueStep(delayMs) {
-  chrome.alarms.create(CAPTURE_ALARM, {
-    when: Date.now() + Math.max(delayMs, 1000)
-  });
-}
-
 async function postConversation(payload) {
-  const response = await fetch(LOCAL_IMPORT_URL, {
+  const response = await api.request("/api/extension/capture-page", {
     method: "POST",
-    headers: await localApiHeaders({ "content-type": "application/json" }),
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
   });
   const data = await response.json().catch(() => ({}));
@@ -352,9 +211,9 @@ async function postConversation(payload) {
 
 async function postDiscovery(discovery) {
   if (!discovery?.platform) return;
-  await fetch(LOCAL_DISCOVERY_URL, {
+  await api.request("/api/extension/discovery-run", {
     method: "POST",
-    headers: await localApiHeaders({ "content-type": "application/json" }),
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       platform: discovery.platform,
       targetsFound: discovery.targets?.length || 0,
@@ -375,9 +234,9 @@ async function postDiscovery(discovery) {
 
 async function filterKnownTargets(targets, options = {}) {
   if (!targets.length) return targets;
-  const response = await fetch(LOCAL_FILTER_TARGETS_URL, {
+  const response = await api.request("/api/extension/filter-targets", {
     method: "POST",
-    headers: await localApiHeaders({ "content-type": "application/json" }),
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       targets,
       mode: options.mode,
@@ -391,9 +250,7 @@ async function filterKnownTargets(targets, options = {}) {
 }
 
 async function getKnownTargetInfo(platform) {
-  const response = await fetch(`${LOCAL_FILTER_TARGETS_URL}?platform=${encodeURIComponent(platform)}`, {
-    headers: await localApiHeaders()
-  });
+  const response = await api.request(`/api/extension/filter-targets?platform=${encodeURIComponent(platform)}`);
   const data = await response.json().catch(() => ({}));
   return {
     knownTargetsByTitle:
@@ -405,9 +262,9 @@ async function getKnownTargetInfo(platform) {
 }
 
 async function postSyncState(platform, event, details = {}) {
-  const response = await fetch(LOCAL_SYNC_STATE_URL, {
+  const response = await api.request("/api/extension/sync-state", {
     method: "POST",
-    headers: await localApiHeaders({ "content-type": "application/json" }),
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ platform, event, ...details })
   });
   if (!response.ok) {
@@ -484,8 +341,7 @@ function buildDiscoverOptions(options) {
 }
 
 async function shouldStopRun() {
-  const result = await chrome.storage.local.get("aihrActiveRun");
-  activeRun = result.aihrActiveRun || activeRun;
+  activeRun = (await captureQueue.read()) || activeRun;
   return activeRun?.stopRequested === true;
 }
 
@@ -870,7 +726,7 @@ async function initializeQueue(targets, options) {
       pageJitterMs: options?.pageJitterMs || DEFAULT_JITTER_MS
     }
   });
-  scheduleQueueStep(1000);
+  scheduler.scheduleQueueStep(1000);
 }
 
 async function finalizeIncrementalRun(run) {
@@ -883,7 +739,7 @@ async function finalizeIncrementalRun(run) {
     if (platformFailure) {
       await postSyncState(platform, "failed", {
         error: platformFailure.error || "增量同步失败",
-        backoffUntil: new Date(Date.now() + AUTO_PILOT_RETRY_MS).toISOString()
+        backoffUntil: scheduler.retryUntil()
       }).catch(() => undefined);
       continue;
     }
@@ -920,26 +776,26 @@ async function resumeQueue() {
     phase: "capturing",
     stopRequested: false,
     processing: false,
-    processingStartedAt: null
+    processingStartedAt: null,
+    leaseUntil: null
   });
-  scheduleQueueStep(1000);
+  scheduler.scheduleQueueStep(1000);
   return activeRun;
 }
 
 async function clearRunStatus() {
   activeRun = null;
-  await chrome.alarms.clear(CAPTURE_ALARM);
-  await chrome.storage.local.remove("aihrActiveRun");
+  await scheduler.clearQueue();
+  await captureQueue.clear();
 }
 
 async function restoreQueueAlarm() {
-  const run = await loadStatus();
+  const run = await captureQueue.restore(Date.now());
+  activeRun = run || activeRun;
   if (run?.status === "running" && run.phase === "capturing") {
-    await saveStatus({
-      processing: false,
-      processingStartedAt: null
-    });
-    scheduleQueueStep(1500);
+    const leaseUntil = Number(run.leaseUntil) || 0;
+    const remainingLease = run.processing && leaseUntil > Date.now() ? leaseUntil - Date.now() : 1500;
+    scheduler.scheduleQueueStep(remainingLease);
   }
 }
 
@@ -959,18 +815,25 @@ async function processQueueStep() {
   if (!run || run.status !== "running" || run.phase !== "capturing") return;
 
   if (run.stopRequested) {
-    await saveStatus({ status: "stopped", phase: "stopped", processing: false });
+    await saveStatus({
+      status: "stopped",
+      phase: "stopped",
+      processing: false,
+      processingStartedAt: null,
+      leaseUntil: null
+    });
     return;
   }
 
   if (run.processing) {
     const startedAt = run.processingStartedAt ? Date.parse(run.processingStartedAt) : 0;
-    if (startedAt && Date.now() - startedAt > 180000) {
-      await saveStatus({ processing: false, processingStartedAt: null });
-      scheduleQueueStep(1000);
+    const leaseUntil = Number(run.leaseUntil) || (startedAt ? startedAt + captureQueue.leaseMs : 0);
+    if (leaseUntil && leaseUntil <= Date.now()) {
+      activeRun = (await captureQueue.restore(Date.now())) || activeRun;
+      scheduler.scheduleQueueStep(1000);
       return;
     }
-    scheduleQueueStep(5000);
+    scheduler.scheduleQueueStep(5000);
     return;
   }
 
@@ -980,13 +843,22 @@ async function processQueueStep() {
 
   if (!target) {
     await finalizeIncrementalRun(run);
-    await saveStatus({ status: "completed", phase: "completed", processing: false, currentTarget: null });
+    await saveStatus({
+      status: "completed",
+      phase: "completed",
+      processing: false,
+      processingStartedAt: null,
+      leaseUntil: null,
+      currentTarget: null
+    });
     return;
   }
 
+  const processingStartedAt = Date.now();
   await saveStatus({
     processing: true,
-    processingStartedAt: new Date().toISOString(),
+    processingStartedAt: new Date(processingStartedAt).toISOString(),
+    leaseUntil: processingStartedAt + captureQueue.leaseMs,
     currentTarget: {
       platform: target.platform,
       title: target.title,
@@ -1016,6 +888,7 @@ async function processQueueStep() {
       },
       processing: false,
       processingStartedAt: null,
+      leaseUntil: null,
       currentTarget: null
     });
   } catch (error) {
@@ -1033,13 +906,19 @@ async function processQueueStep() {
       ].slice(-80),
       processing: false,
       processingStartedAt: null,
+      leaseUntil: null,
       currentTarget: null
     });
   }
 
   const latest = await loadStatus();
   if (latest?.status === "running" && latest.phase === "capturing") {
-    scheduleQueueStep(randomDelay(latest.options?.pageDelayMs || DEFAULT_DELAY_MS, latest.options?.pageJitterMs || DEFAULT_JITTER_MS));
+    scheduler.scheduleQueueStep(
+      randomDelay(
+        latest.options?.pageDelayMs || DEFAULT_DELAY_MS,
+        latest.options?.pageJitterMs || DEFAULT_JITTER_MS
+      )
+    );
   }
 }
 
@@ -1065,7 +944,7 @@ async function runFullCapture({ sourceTabId, options }) {
     failures: [],
     stopRequested: false
   };
-  await chrome.storage.local.set({ aihrActiveRun: activeRun });
+  await captureQueue.write(activeRun);
 
   try {
     const discovery = await sendTabMessage(
@@ -1257,14 +1136,14 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     platformResults: {},
     stopRequested: false
   };
-  await chrome.storage.local.set({ aihrActiveRun: activeRun });
+  await captureQueue.write(activeRun);
 
   try {
     const allTargets = [];
     for (const platform of activeRun.platforms) {
       if (!PLATFORM_HISTORY_URLS[platform]) continue;
-      const latest = await chrome.storage.local.get("aihrActiveRun");
-      if (latest.aihrActiveRun?.stopRequested) {
+      const latest = await captureQueue.read();
+      if (latest?.stopRequested) {
         await saveStatus({ status: "stopped", phase: "stopped" });
         return activeRun;
       }
@@ -1295,7 +1174,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
         if (activeRun.mode === "incremental") {
           await postSyncState(platform, "failed", {
             error: error instanceof Error ? error.message : "Discovery failed.",
-            backoffUntil: new Date(Date.now() + AUTO_PILOT_RETRY_MS).toISOString()
+            backoffUntil: scheduler.retryUntil()
           }).catch(() => undefined);
         }
         await saveDiscoveryProgress({
@@ -1340,7 +1219,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
 }
 
 async function getBackgroundSyncSettings() {
-  const stored = await chrome.storage.local.get("aihrBackgroundSyncSettings");
+  const stored = await chromeApi.storage.get("aihrBackgroundSyncSettings");
   return {
     enabled: stored.aihrBackgroundSyncSettings?.enabled !== false,
     intervalMinutes: Math.min(
@@ -1358,17 +1237,16 @@ async function getBackgroundSyncSettings() {
 async function setBackgroundSyncEnabled(enabled) {
   const settings = await getBackgroundSyncSettings();
   const nextSettings = { ...settings, enabled: Boolean(enabled) };
-  await chrome.storage.local.set({ aihrBackgroundSyncSettings: nextSettings });
+  await chromeApi.storage.set({ aihrBackgroundSyncSettings: nextSettings });
   await Promise.all(
     Object.keys(PLATFORM_HISTORY_URLS).map((platform) =>
       postSyncState(platform, "background", { enabled: nextSettings.enabled }).catch(() => undefined)
     )
   );
   if (nextSettings.enabled) {
-    await scheduleBackgroundAutoPilot(2 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000));
+    await scheduleBackgroundAutoPilot(scheduler.enabledDelay());
   } else {
-    await chrome.alarms.clear(AUTO_PILOT_ALARM);
-    await chrome.storage.local.remove("aihrAutoPilotNextAt");
+    await scheduler.clearAutoPilot();
   }
   return nextSettings;
 }
@@ -1376,20 +1254,16 @@ async function setBackgroundSyncEnabled(enabled) {
 async function scheduleBackgroundAutoPilot(delayMs = AUTO_PILOT_INTERVAL_MS) {
   const settings = await getBackgroundSyncSettings();
   if (!settings.enabled) return;
-  const scheduledAt = Date.now() + Math.max(delayMs, 60000);
-  await chrome.storage.local.set({ aihrAutoPilotNextAt: scheduledAt });
-  await chrome.alarms.create(AUTO_PILOT_ALARM, { when: scheduledAt });
+  await scheduler.scheduleAutoPilot(delayMs);
 }
 
 async function ensureBackgroundAutoPilotScheduled(defaultDelayMs) {
-  const stored = await chrome.storage.local.get("aihrAutoPilotNextAt");
-  const nextAt = Number(stored.aihrAutoPilotNextAt) || 0;
+  const nextAt = await scheduler.getAutoPilotNextAt();
   await scheduleBackgroundAutoPilot(nextAt > Date.now() ? nextAt - Date.now() : defaultDelayMs);
 }
 
 async function runBackgroundAutoPilot() {
-  const stored = await chrome.storage.local.get(["aihrActiveRun", "aihrAutoPilotNextAt"]);
-  activeRun = stored.aihrActiveRun || activeRun;
+  activeRun = (await captureQueue.read()) || activeRun;
   const settings = await getBackgroundSyncSettings();
   if (!settings.enabled) return;
   if (activeRun?.status === "running") {
@@ -1397,15 +1271,13 @@ async function runBackgroundAutoPilot() {
     return;
   }
 
-  const nextAt = Number(stored.aihrAutoPilotNextAt) || 0;
+  const nextAt = await scheduler.getAutoPilotNextAt();
   if (nextAt > Date.now()) {
-    await chrome.alarms.create(AUTO_PILOT_ALARM, { when: nextAt });
+    await scheduler.restoreAutoPilot(nextAt);
     return;
   }
 
-  const response = await fetch(LOCAL_AUDIT_URL, {
-    headers: await localApiHeaders()
-  });
+  const response = await api.request("/api/capture/audit");
   if (!response.ok) {
     await scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS);
     return;
@@ -1433,7 +1305,7 @@ async function runBackgroundAutoPilot() {
     return;
   }
 
-  await chrome.storage.local.set({ aihrAutoPilotNextAt: Date.now() + intervalMs });
+  await scheduler.setAutoPilotNextAt(Date.now() + intervalMs);
   await runAllPlatformsCapture({
     sourceTabId: undefined,
     options: {
@@ -1477,21 +1349,11 @@ function isConversationUrl(url) {
   }
 }
 
-function getTab(tabId) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.get(tabId, (tab) => {
-      const error = chrome.runtime.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve(tab);
-    });
-  });
-}
-
 async function scheduleConversationSnapshot(tabId, url) {
   if (!tabId || !isConversationUrl(url)) return;
   const settings = await getBackgroundSyncSettings();
   if (!settings.enabled) return;
-  const stored = await chrome.storage.local.get("aihrSnapshotCooldowns");
+  const stored = await chromeApi.storage.get("aihrSnapshotCooldowns");
   const lastCapturedAt = Number(stored.aihrSnapshotCooldowns?.[url]) || 0;
   const scheduledAt = nextSnapshotAt({
     now: Date.now(),
@@ -1500,9 +1362,7 @@ async function scheduleConversationSnapshot(tabId, url) {
     minDelayMs: 20000,
     jitterMs: 25000
   });
-  await chrome.alarms.create(`${SNAPSHOT_ALARM_PREFIX}${tabId}`, {
-    when: scheduledAt
-  });
+  await scheduler.scheduleSnapshot(tabId, scheduledAt);
 }
 
 async function captureOpenTabSnapshot(tabId) {
@@ -1513,7 +1373,7 @@ async function captureOpenTabSnapshot(tabId) {
   const tab = await getTab(tabId);
   if (!tab?.url || !isConversationUrl(tab.url)) return;
 
-  const stored = await chrome.storage.local.get("aihrSnapshotCooldowns");
+  const stored = await chromeApi.storage.get("aihrSnapshotCooldowns");
   const cooldowns = stored.aihrSnapshotCooldowns || {};
   if (Date.now() - (Number(cooldowns[tab.url]) || 0) < SNAPSHOT_COOLDOWN_MS) return;
 
@@ -1531,7 +1391,7 @@ async function captureOpenTabSnapshot(tabId) {
   const entries = Object.entries(cooldowns)
     .sort((a, b) => Number(b[1]) - Number(a[1]))
     .slice(0, 200);
-  await chrome.storage.local.set({ aihrSnapshotCooldowns: Object.fromEntries(entries) });
+  await chromeApi.storage.set({ aihrSnapshotCooldowns: Object.fromEntries(entries) });
 }
 
 async function getConnectedPlatforms() {
@@ -1550,18 +1410,18 @@ async function getConnectedPlatforms() {
 
 async function getRuntimeStatus() {
   const run = (await loadStatus()) || idleStatus();
-  const stored = await chrome.storage.local.get("aihrAutoPilotNextAt");
+  const nextAt = await scheduler.getAutoPilotNextAt();
   return {
     ...run,
     connectedPlatforms: await getConnectedPlatforms(),
     backgroundSync: {
       ...(await getBackgroundSyncSettings()),
-      nextAt: stored.aihrAutoPilotNextAt ? new Date(stored.aihrAutoPilotNextAt).toISOString() : null
+      nextAt: nextAt ? new Date(nextAt).toISOString() : null
     }
   };
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chromeApi.onMessage((message, sender, sendResponse) => {
   if (message?.type === "AIHR_CONVERSATION_ACTIVITY") {
     const tabId = sender.tab?.id;
     const url = typeof message.url === "string" ? message.url : sender.tab?.url;
@@ -1603,10 +1463,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "AIHR_STOP_FULL_CAPTURE") {
-    chrome.storage.local
-      .get("aihrActiveRun")
-      .then((result) => {
-        activeRun = result.aihrActiveRun || activeRun;
+    captureQueue
+      .read()
+      .then((run) => {
+        activeRun = run || activeRun;
         if (!activeRun) return null;
         return saveStatus({ stopRequested: true });
       })
@@ -1640,7 +1500,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "AIHR_RELOAD_EXTENSION") {
     sendResponse({ ok: true, reloading: true, version: EXTENSION_VERSION, buildId: EXTENSION_BUILD_ID });
-    setTimeout(() => chrome.runtime.reload(), 100);
+    setTimeout(() => chromeApi.reload(), 100);
     return true;
   }
 
@@ -1673,20 +1533,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name.startsWith(SNAPSHOT_ALARM_PREFIX)) {
-    const tabId = Number(alarm.name.slice(SNAPSHOT_ALARM_PREFIX.length));
-    if (Number.isFinite(tabId)) captureOpenTabSnapshot(tabId).catch(() => undefined);
+scheduler.onAlarm((alarm) => {
+  const snapshotTabId = scheduler.snapshotTabId(alarm.name);
+  if (snapshotTabId !== null) {
+    captureOpenTabSnapshot(snapshotTabId).catch(() => undefined);
     return;
   }
-  if (alarm.name === AUTO_PILOT_ALARM) {
-    chrome.storage.local
-      .remove("aihrAutoPilotNextAt")
+  if (alarm.name === scheduler.names.autoPilot) {
+    scheduler
+      .removeAutoPilotNextAt()
       .then(() => runBackgroundAutoPilot())
       .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
     return;
   }
-  if (alarm.name !== CAPTURE_ALARM) return;
+  if (alarm.name !== scheduler.names.capture) return;
   processQueueStep().catch((error) => {
     saveStatus({
       status: "failed",
@@ -1697,45 +1557,39 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   });
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chromeApi.onTabUpdated((tabId, changeInfo, tab) => {
   const url = changeInfo.url || tab.url;
   if ((changeInfo.status === "complete" || changeInfo.url) && url) {
     scheduleConversationSnapshot(tabId, url).catch(() => undefined);
   }
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.alarms.clear(`${SNAPSHOT_ALARM_PREFIX}${tabId}`).catch(() => undefined);
+chromeApi.onTabRemoved((tabId) => {
+  scheduler.clearSnapshot(tabId).catch(() => undefined);
 });
 
-chrome.runtime.onStartup.addListener(() => {
+chromeApi.onStartup(() => {
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
-  ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000)).catch(
-    () => undefined
-  );
+  ensureBackgroundAutoPilotScheduled(scheduler.startupDelay()).catch(() => undefined);
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+chromeApi.onInstalled(() => {
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
-  ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000)).catch(
-    () => undefined
-  );
+  ensureBackgroundAutoPilotScheduled(scheduler.startupDelay()).catch(() => undefined);
 });
 
-chrome.runtime.onStartup.addListener(() => {
+chromeApi.onStartup(() => {
   processQueueStep().catch(() => undefined);
 });
 
-chrome.runtime.onInstalled.addListener(() => {
+chromeApi.onInstalled(() => {
   processQueueStep().catch(() => undefined);
 });
 
 recoverInterruptedDiscovery()
-  .then(() =>
-    ensureBackgroundAutoPilotScheduled(3 * 60 * 1000 + Math.floor(Math.random() * 3 * 60 * 1000))
-  )
+  .then(() => ensureBackgroundAutoPilotScheduled(scheduler.startupDelay()))
   .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
 
 ensureContentScriptsInOpenTabs().catch(() => undefined);

@@ -6,6 +6,7 @@
   "permissions": ["activeTab", "storage", "tabs", "windows", "alarms", "scripting"],
   "host_permissions": [
     "http://localhost:3000/*",
+    "http://127.0.0.1:32145/*",
     "http://127.0.0.1:3000/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -19,7 +20,7 @@
     "default_popup": "popup.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background-entry.js"
   },
   "content_scripts": [
     {
