@@ -259,6 +259,11 @@ export function createSemanticVector(title: string, content: string) {
   return normalizeVector(vector);
 }
 
+export function createLocalConversationVector(title: string, content: string) {
+  const vector = createSemanticVector(title, content);
+  return { model: SEMANTIC_MODEL, dimensions: vector.length, vector };
+}
+
 function vectorFromNumbers(values: number[]) {
   const vector = new Float32Array(values.length);
   for (let index = 0; index < values.length; index += 1) {

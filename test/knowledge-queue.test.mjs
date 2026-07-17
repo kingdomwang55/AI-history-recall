@@ -161,7 +161,7 @@ test("knowledge records cascade with conversations and similarity pairs stay nor
   }, /CHECK constraint failed/);
 
   db.prepare("DELETE FROM conversations WHERE id = ?").run("conversation-1");
-  for (const table of ["knowledge_jobs", "conversation_insights", "auto_conversation_tags", "conversation_similarities"]) {
+  for (const table of ["knowledge_jobs", "conversation_insights", "auto_conversation_tags", "conversation_vectors", "conversation_similarities"]) {
     assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0, table);
   }
 });

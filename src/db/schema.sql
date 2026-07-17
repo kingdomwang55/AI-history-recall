@@ -210,6 +210,19 @@ CREATE TABLE IF NOT EXISTS auto_conversation_tags (
 CREATE INDEX IF NOT EXISTS idx_auto_conversation_tags_tag
 ON auto_conversation_tags(tag);
 
+CREATE TABLE IF NOT EXISTS conversation_vectors (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL CHECK (dimensions > 0),
+  vector BLOB NOT NULL,
+  keywords_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_vectors_model
+ON conversation_vectors(model, dimensions);
+
 CREATE TABLE IF NOT EXISTS conversation_similarities (
   left_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   right_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
