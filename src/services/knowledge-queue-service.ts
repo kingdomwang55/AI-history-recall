@@ -228,3 +228,38 @@ export function getKnowledgeQueueStatus(): KnowledgeQueueStatus {
   }
   return counts;
 }
+
+export function enqueueKnowledgeBackfill(limit = 100): number {
+  const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.floor(limit))) : 100;
+  const db = getDb();
+  const candidates = db
+    .prepare(
+      `
+        SELECT c.id, c.title
+        FROM conversations c
+        LEFT JOIN conversation_insights ci ON ci.conversation_id = c.id
+        WHERE ci.conversation_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM knowledge_jobs kj
+            WHERE kj.conversation_id = c.id
+          )
+        ORDER BY datetime(c.imported_at) DESC, c.id
+        LIMIT ?
+      `
+    )
+    .all(safeLimit) as Array<{ id: string; title: string }>;
+  let enqueued = 0;
+  for (const candidate of candidates) {
+    const messages = db
+      .prepare("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY order_index")
+      .all(candidate.id) as Array<{ role: MessageRole; content: string }>;
+    if (!messages.length) continue;
+    const job = enqueueKnowledgeJob(
+      candidate.id,
+      "process",
+      knowledgeContentFingerprint({ title: candidate.title, messages })
+    );
+    if (job.status === "pending") enqueued += 1;
+  }
+  return enqueued;
+}

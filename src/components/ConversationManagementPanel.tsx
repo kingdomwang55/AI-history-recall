@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withApiToken } from "@/lib/client-api";
+import { KnowledgeManagementPanel } from "@/components/KnowledgeManagementPanel";
 
 export function ConversationManagementPanel({ conversationId }: { conversationId: string }) {
   const router = useRouter();
@@ -71,7 +72,9 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
   }
 
   return (
-    <div className="border-t border-[var(--line)] p-5 text-sm">
+    <>
+      <KnowledgeManagementPanel />
+      <div className="border-t border-[var(--line)] p-5 text-sm">
       <h2 className="text-base font-semibold text-[var(--foreground)]">维护</h2>
       <div className="mt-4 grid gap-3">
         <button
@@ -94,6 +97,7 @@ export function ConversationManagementPanel({ conversationId }: { conversationId
         </button>
       </div>
       {status ? <div className="mt-3 text-xs leading-5 text-[var(--muted)]">{status}</div> : null}
-    </div>
+      </div>
+    </>
   );
 }

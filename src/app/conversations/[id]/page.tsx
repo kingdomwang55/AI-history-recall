@@ -6,6 +6,7 @@ import { ConversationManagementPanel } from "@/components/ConversationManagement
 import { CopyButton } from "@/components/CopyButton";
 import { MessageList } from "@/components/MessageList";
 import { MetadataEditor } from "@/components/MetadataEditor";
+import { KnowledgePanel } from "@/components/KnowledgePanel";
 import { PlatformBadge } from "@/components/PlatformBadge";
 import { buildConversationText, formatDateTime, roleLabel } from "@/lib/format";
 import { getConversation } from "@/services/conversation-service";
@@ -76,13 +77,14 @@ export default async function ConversationPage({ params, searchParams }: { param
               <div className="min-w-0"><h1 className="break-words text-[26px] font-semibold leading-tight">{conversation.title}</h1>{conversation.rawFileName ? <p className="mt-2 truncate text-xs text-[var(--muted)]" title={conversation.rawFileName}>原始文件：{conversation.rawFileName}</p> : null}</div>
               <div className="mt-4 flex flex-wrap items-center gap-2"><CopyButton text={buildConversationText(conversation.title, conversation.messages)} label="复制整段对话" /><ConversationExportButtons conversationId={conversation.id} title={conversation.title} /></div>
             </div>
-            {conversation.tags.length ? <div className="mt-4 flex flex-wrap gap-2">{conversation.tags.map((tag) => <span key={tag} className="rounded-[4px] bg-[var(--surface-subtle)] px-2 py-1 text-xs text-[var(--muted-strong)]">{tag}</span>)}</div> : null}
+            {conversation.manualTags.length ? <div className="mt-4 flex flex-wrap gap-2">{conversation.manualTags.map((tag) => <span key={tag} className="rounded-[4px] bg-[var(--surface-subtle)] px-2 py-1 text-xs text-[var(--muted-strong)]">{tag}</span>)}</div> : null}
+            <KnowledgePanel explicitSummary={conversation.summary} insight={conversation.insight} autoTags={conversation.autoTags} similarConversations={conversation.similarConversations} />
           </header>
           <div className="p-4 sm:p-5"><MessageList messages={conversation.messages} /></div>
         </div>
 
         <aside className="conversation-inspector">
-          <MetadataEditor conversationId={conversation.id} initialTags={conversation.tags} initialNote={conversation.note} />
+          <MetadataEditor conversationId={conversation.id} initialTags={conversation.manualTags} initialNote={conversation.note} />
           <div className="border-t border-[var(--line)] p-5 text-sm">
             <h2 className="font-semibold">对话信息</h2>
             <dl className="mt-4 grid gap-3 text-xs"><div className="flex justify-between gap-4"><dt className="text-[var(--muted)]">消息数</dt><dd>{conversation.messages.length}</dd></div><div className="flex justify-between gap-4"><dt className="text-[var(--muted)]">创建时间</dt><dd className="text-right">{formatDateTime(conversation.createdAt)}</dd></div><div className="flex justify-between gap-4"><dt className="text-[var(--muted)]">更新时间</dt><dd className="text-right">{formatDateTime(conversation.updatedAt)}</dd></div></dl>

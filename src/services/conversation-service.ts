@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { getDb, nowIso } from "@/lib/db";
+import { getSimilarConversations } from "@/services/similarity-service";
 import type {
   Conversation,
+  ConversationInsight,
   ConversationWithMessages,
   Message
 } from "@/types/conversation";
@@ -40,7 +42,11 @@ function mapConversation(row: ConversationRow, tags: string[]): Conversation {
     rawFileName: row.raw_file_name,
     sourceUrl: row.source_url,
     tags,
-    note: row.note ?? ""
+    manualTags: tags,
+    autoTags: [],
+    note: row.note ?? "",
+    insight: null,
+    similarConversations: []
   };
 }
 
@@ -72,7 +78,7 @@ export function getConversation(id: string): ConversationWithMessages | null {
     return null;
   }
 
-  const tags = db
+  const manualTags = db
     .prepare(
       `
       SELECT t.name
@@ -84,6 +90,57 @@ export function getConversation(id: string): ConversationWithMessages | null {
     )
     .all(id)
     .map((item) => (item as { name: string }).name);
+
+  const autoTags = db
+    .prepare(
+      `
+        SELECT tag
+        FROM auto_conversation_tags
+        WHERE conversation_id = ?
+        ORDER BY tag COLLATE NOCASE
+      `
+    )
+    .all(id)
+    .map((item) => (item as { tag: string }).tag);
+
+  const combinedTags = new Map<string, string>();
+  for (const tag of [...manualTags, ...autoTags]) {
+    const key = tag.toLocaleLowerCase();
+    if (!combinedTags.has(key)) combinedTags.set(key, tag);
+  }
+
+  const insightRow = db
+    .prepare(
+      `
+        SELECT summary, key_points_json, generator, generator_version, generated_at
+        FROM conversation_insights
+        WHERE conversation_id = ?
+      `
+    )
+    .get(id) as {
+      summary: string;
+      key_points_json: string;
+      generator: "rule" | "model";
+      generator_version: string;
+      generated_at: string;
+    } | undefined;
+  let insight: ConversationInsight | null = null;
+  if (insightRow) {
+    let keyPoints: string[] = [];
+    try {
+      const parsed = JSON.parse(insightRow.key_points_json) as unknown;
+      if (Array.isArray(parsed)) keyPoints = parsed.filter((item): item is string => typeof item === "string");
+    } catch {
+      keyPoints = [];
+    }
+    insight = {
+      summary: insightRow.summary,
+      keyPoints,
+      generator: insightRow.generator,
+      generatorVersion: insightRow.generator_version,
+      generatedAt: insightRow.generated_at
+    };
+  }
 
   const messages = db
     .prepare(
@@ -98,7 +155,11 @@ export function getConversation(id: string): ConversationWithMessages | null {
     .map((item) => mapMessage(item as MessageRow));
 
   return {
-    ...mapConversation(row, tags),
+    ...mapConversation(row, [...combinedTags.values()]),
+    manualTags,
+    autoTags,
+    insight,
+    similarConversations: getSimilarConversations(id),
     messages
   };
 }

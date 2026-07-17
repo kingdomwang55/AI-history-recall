@@ -8,10 +8,30 @@ export interface Conversation {
   updatedAt: string | null;
   importedAt: string;
   tags: string[];
+  manualTags: string[];
+  autoTags: string[];
   summary: string | null;
   rawFileName: string | null;
   sourceUrl: string | null;
   note: string;
+  insight: ConversationInsight | null;
+  similarConversations: SimilarConversationReference[];
+}
+
+export interface ConversationInsight {
+  summary: string;
+  keyPoints: string[];
+  generator: "rule" | "model";
+  generatorVersion: string;
+  generatedAt: string;
+}
+
+export interface SimilarConversationReference {
+  conversationId: string;
+  title: string;
+  sourcePlatform: string;
+  score: number;
+  fingerprint: string;
 }
 
 export interface Message {

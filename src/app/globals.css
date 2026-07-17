@@ -178,6 +178,35 @@ mark { border-radius: 2px; background: #fff1a8; color: inherit; padding: 0 2px; 
 .health-spin { animation: health-spin 700ms linear infinite; }
 @keyframes health-spin { to { transform: rotate(360deg); } }
 
+.knowledge-panel { margin-top: 18px; border-block: 1px solid var(--line); background: var(--bg-tertiary); }
+.knowledge-panel-empty { display: flex; align-items: center; gap: 10px; padding: 14px 0; color: var(--muted); }
+.knowledge-panel-empty h2 { margin: 0; color: var(--foreground); font-size: 12px; font-weight: 650; }
+.knowledge-panel-empty p { margin: 2px 0 0; font-size: 11px; }
+.knowledge-summary, .knowledge-subsection { padding: 14px 0; }
+.knowledge-subsection { border-top: 1px solid var(--line); }
+.knowledge-section-title { display: flex; align-items: center; gap: 7px; color: var(--primary); }
+.knowledge-section-title h2 { margin: 0; color: var(--foreground); font-size: 12px; font-weight: 650; }
+.knowledge-section-title > span { border-radius: 4px; background: var(--primary-soft); padding: 2px 6px; font-size: 10px; font-weight: 650; }
+.knowledge-summary > p { margin: 8px 0 0; overflow-wrap: anywhere; color: var(--muted-strong); font-size: 13px; line-height: 1.7; }
+.knowledge-generated-summary > p { margin: 8px 0 0; overflow-wrap: anywhere; color: var(--muted-strong); font-size: 12px; line-height: 1.65; }
+.knowledge-subsection ul { display: grid; gap: 6px; margin: 9px 0 0; padding-left: 18px; color: var(--muted-strong); font-size: 12px; line-height: 1.6; }
+.knowledge-auto-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.knowledge-auto-tags span { display: inline-flex; align-items: center; gap: 4px; border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border)); border-radius: 4px; background: var(--primary-soft); padding: 3px 7px; color: var(--primary-active); font-size: 11px; font-weight: 600; }
+.knowledge-similar-list { display: grid; margin-top: 8px; }
+.knowledge-similar-list > a { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 40px; border-top: 1px solid var(--line); color: var(--foreground); text-decoration: none; }
+.knowledge-similar-list > a:hover { background: var(--bg-hover); }
+.knowledge-similar-list > a > span { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-similar-list small { color: var(--muted); font-size: 10px; }
+.knowledge-management-panel { border-top: 1px solid var(--line); padding: 16px 20px; }
+.knowledge-management-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.knowledge-management-heading h2 { margin: 0; font-size: 13px; font-weight: 650; }
+.knowledge-management-heading p { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+.knowledge-management-heading > button { display: inline-flex; height: 28px; width: 28px; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted-strong); }
+.knowledge-process-button { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: center; gap: 7px; margin-top: 11px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--foreground); font-size: 11px; font-weight: 650; }
+.knowledge-process-button:hover { background: var(--bg-secondary); }
+.knowledge-process-button:disabled { background: var(--bg-secondary); color: var(--text-disabled); }
+.knowledge-management-message { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
 button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
 button:disabled { color: var(--text-disabled); }
 .platform-status-matrix tr:last-child td { border-bottom: 0; }
@@ -216,4 +245,6 @@ button:disabled { color: var(--text-disabled); }
   .health-summary-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
   .health-check-row { grid-template-columns: 28px minmax(0, 1fr); }
   .health-repair-link { grid-column: 2; max-width: 100%; }
+  .knowledge-similar-list > a { grid-template-columns: minmax(0, 1fr) auto auto; padding-block: 7px; }
+  .knowledge-similar-list .platform-badge { display: none; }
 }

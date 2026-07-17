@@ -216,3 +216,20 @@ test("knowledge process route caps each heartbeat batch at ten jobs", async () =
   assert.equal(body.claimed, 10);
   assert.equal(body.queue.pending, 2);
 });
+
+test("worker backfills conversations created before the knowledge queue existed", async () => {
+  useTempDb();
+  const db = getDb();
+  db.prepare(
+    "INSERT INTO conversations (id, source_platform, title, imported_at) VALUES ('legacy', 'chatgpt', 'Legacy semantic search', ?)"
+  ).run("2026-01-01T00:00:00.000Z");
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content, order_index) VALUES ('legacy-message', 'legacy', 'user', 'How does semantic recall work?', 0)"
+  ).run();
+
+  const result = await processKnowledgeBatch({ limit: 1 });
+
+  assert.equal(result.backfilled, 1);
+  assert.equal(result.completed, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_insights").get().count, 1);
+});

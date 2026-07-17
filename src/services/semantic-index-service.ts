@@ -432,11 +432,18 @@ export function searchSemanticIndex(
 
   if (filters.tag) {
     where.push(`
-      EXISTS (
-        SELECT 1
-        FROM conversation_tags ct
-        JOIN tags t ON t.id = ct.tag_id
-        WHERE ct.conversation_id = c.id AND t.name = @tag
+      (
+        EXISTS (
+          SELECT 1
+          FROM conversation_tags ct
+          JOIN tags t ON t.id = ct.tag_id
+          WHERE ct.conversation_id = c.id AND t.name = @tag
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM auto_conversation_tags act
+          WHERE act.conversation_id = c.id AND act.tag = @tag
+        )
       )
     `);
     params.tag = filters.tag;

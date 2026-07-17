@@ -54,12 +54,33 @@ test("search route removes the duplicate global search and platform badges inclu
 
 test("conversation detail keeps transcript and inspector in a responsive workspace", async () => {
   const page = await source("src/app/conversations/[id]/page.tsx");
+  const knowledge = await source("src/components/KnowledgePanel.tsx");
 
   assert.match(page, /conversation-workspace/);
   assert.match(page, /conversation-context-list/);
   assert.match(page, /conversation-transcript/);
   assert.match(page, /conversation-inspector/);
   assert.match(page, /对话信息/);
+  assert.match(page, /KnowledgePanel/);
+  assert.match(knowledge, /自动摘要/);
+  assert.match(knowledge, /关键要点/);
+  assert.match(knowledge, /自动标签/);
+  assert.match(knowledge, /similarConversations/);
+  assert.match(knowledge, /\/conversations\//);
+});
+
+test("knowledge heartbeat is visible-only bounded and stops on an empty queue", async () => {
+  const layout = await source("src/app/layout.tsx");
+  const heartbeat = await source("src/components/KnowledgeHeartbeat.tsx");
+  const management = await source("src/components/KnowledgeManagementPanel.tsx");
+
+  assert.match(layout, /KnowledgeHeartbeat/);
+  assert.match(heartbeat, /60_000/);
+  assert.match(heartbeat, /document\.visibilityState/);
+  assert.match(heartbeat, /limit: 2/);
+  assert.match(heartbeat, /queue\.pending > 0/);
+  assert.match(management, /待处理/);
+  assert.match(management, /立即处理/);
 });
 
 test("capture page presents a platform status matrix before advanced controls", async () => {

@@ -8,7 +8,8 @@ import path from "node:path";
 register("./path-alias-loader.mjs", import.meta.url);
 
 const { importParsedConversations } = await import("../src/services/import-service.ts");
-const { HIGHLIGHT_END, HIGHLIGHT_START, searchConversations } = await import("../src/services/search-service.ts");
+const { HIGHLIGHT_END, HIGHLIGHT_START, getSearchFacets, searchConversations } = await import("../src/services/search-service.ts");
+const { processKnowledgeBatch } = await import("../src/services/knowledge-worker-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
 
 function closeDb() {
@@ -171,4 +172,24 @@ test("returns semantic matches when exact query words are absent", () => {
   assert.equal(results[0].conversationId, imported.conversationIds[0]);
   assert.equal(results[0].matchKind, "semantic");
   assert.match(results[0].snippet, /Chrome extension/);
+});
+
+test("automatic tags appear in facets and filter results without becoming manual tags", async () => {
+  useTempDb();
+  const imported = seedSearchConversation();
+  await processKnowledgeBatch({ limit: 1 });
+
+  const facets = getSearchFacets();
+  const results = searchConversations({ query: "", tag: "Gemini", sort: "newest" });
+  const manualCount = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM conversation_tags ct
+       JOIN tags t ON t.id = ct.tag_id
+       WHERE ct.conversation_id = ? AND t.name = 'Gemini'`
+    )
+    .get(imported.conversationIds[0]).count;
+
+  assert.ok(facets.tags.some((tag) => tag.value === "Gemini"));
+  assert.deepEqual(results.map((result) => result.conversationId), imported.conversationIds);
+  assert.equal(manualCount, 0);
 });

@@ -34,8 +34,10 @@ type VectorRow = {
 
 const stopWords = new Set([
   "the", "and", "for", "that", "with", "this", "from", "how", "what", "into", "then",
+  "user", "assistant", "system", "unknown",
   "使用", "可以", "如何", "一个", "进行", "实现", "方案", "需要", "问题"
 ]);
+const CONVERSATION_VECTOR_VERSION = "conversation-v2";
 
 function boundedContent(messages: ConversationSource["messages"]) {
   const selected: string[] = [];
@@ -118,17 +120,18 @@ function ensureConversationVectors(conversationId: string, currentFingerprint: s
 
   db.transaction(() => {
     for (const source of loadConversationSources()) {
-      const fingerprint =
+      const contentFingerprint =
         source.id === conversationId
           ? currentFingerprint
           : knowledgeContentFingerprint({ title: source.title, messages: source.messages });
+      const fingerprint = `${CONVERSATION_VECTOR_VERSION}:${contentFingerprint}`;
       if (existing.get(source.id)?.fingerprint === fingerprint) continue;
       const content = boundedContent(source.messages);
       const embedding = createLocalConversationVector(source.title, content);
       upsert.run(
         source.id,
         fingerprint,
-        embedding.model,
+        `${embedding.model}:${CONVERSATION_VECTOR_VERSION}`,
         embedding.dimensions,
         encodeSemanticVector(embedding.vector),
         JSON.stringify(keywords(`${source.title}\n${content}`)),
@@ -176,6 +179,9 @@ export function replaceSimilarConversations(conversationId: string, fingerprint:
         currentKeywords,
         new Set(JSON.parse(candidate.keywords_json) as string[])
       );
+      if (keywordScore < 0.05 && tagScore === 0) {
+        return { conversationId: candidate.conversation_id, score: 0 };
+      }
       return {
         conversationId: candidate.conversation_id,
         score: Math.min(1, cosine * 0.7 + tagScore * 0.2 + keywordScore * 0.1)

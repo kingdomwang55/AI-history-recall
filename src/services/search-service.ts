@@ -43,11 +43,17 @@ export function getSearchFacets() {
   const tags = db
     .prepare(
       `
-      SELECT t.name AS value, COUNT(ct.conversation_id) AS count
-      FROM tags t
-      JOIN conversation_tags ct ON ct.tag_id = t.id
-      GROUP BY t.id
-      ORDER BY count DESC, t.name COLLATE NOCASE
+      SELECT value, COUNT(DISTINCT conversation_id) AS count
+      FROM (
+        SELECT t.name AS value, ct.conversation_id
+        FROM tags t
+        JOIN conversation_tags ct ON ct.tag_id = t.id
+        UNION ALL
+        SELECT tag AS value, conversation_id
+        FROM auto_conversation_tags
+      )
+      GROUP BY value COLLATE NOCASE
+      ORDER BY count DESC, value COLLATE NOCASE
     `
     )
     .all() as { value: string; count: number }[];
@@ -81,11 +87,18 @@ function buildWhere(filters: SearchFilters, useFts: boolean) {
 
   if (filters.tag) {
     where.push(`
-      EXISTS (
-        SELECT 1
-        FROM conversation_tags ct
-        JOIN tags t ON t.id = ct.tag_id
-        WHERE ct.conversation_id = c.id AND t.name = @tag
+      (
+        EXISTS (
+          SELECT 1
+          FROM conversation_tags ct
+          JOIN tags t ON t.id = ct.tag_id
+          WHERE ct.conversation_id = c.id AND t.name = @tag
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM auto_conversation_tags act
+          WHERE act.conversation_id = c.id AND act.tag = @tag
+        )
       )
     `);
     params.tag = filters.tag;

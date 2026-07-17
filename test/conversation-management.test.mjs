@@ -10,6 +10,7 @@ register("./path-alias-loader.mjs", import.meta.url);
 const { importParsedConversations } = await import("../src/services/import-service.ts");
 const { deleteConversation, updateConversationMetadata } = await import("../src/services/conversation-service.ts");
 const { reindexSearch } = await import("../src/services/reindex-service.ts");
+const { processKnowledgeBatch } = await import("../src/services/knowledge-worker-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
 const conversationRoute = await import("../src/app/api/conversations/[id]/route.ts");
 const reindexRoute = await import("../src/app/api/search/reindex/route.ts");
@@ -88,6 +89,22 @@ test("metadata edits do not enqueue new knowledge work", () => {
   updateConversationMetadata(conversationId, ["manual-only"], "Metadata should not alter the transcript fingerprint");
 
   assert.equal(countRows("knowledge_jobs"), before);
+});
+
+test("conversation read separates manual and automatic tags", async () => {
+  useTempDb();
+  const conversationId = seedConversation();
+  await processKnowledgeBatch({ limit: 1 });
+
+  const conversation = (await import("../src/services/conversation-service.ts")).getConversation(conversationId);
+
+  assert.deepEqual(conversation.manualTags, ["cleanup", "management"]);
+  assert.ok(conversation.autoTags.length > 0);
+  assert.deepEqual(
+    [...conversation.tags].sort(),
+    [...new Set([...conversation.manualTags, ...conversation.autoTags])].sort()
+  );
+  assert.ok(conversation.insight?.summary);
 });
 
 test("reindexSearch rebuilds FTS and semantic rows from canonical messages", () => {

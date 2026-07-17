@@ -115,3 +115,27 @@ test("conversation vectors are reused while unchanged", () => {
   assert.equal(before.length, 3);
   assert.deepEqual(after, before);
 });
+
+test("high vector score without lexical or tag evidence is excluded", () => {
+  useTempDb();
+  const ids = seedConversations();
+  const unrelated = importParsedConversations(
+    [
+      {
+        title: "VPS 供应商评估",
+        sourcePlatform: "gemini",
+        sourceUrl: "https://gemini.google.com/app/vps-vendors",
+        messages: [
+          { role: "user", content: "请专业分析不同海外主机供应商的付款方式、售后服务和风险。" },
+          { role: "assistant", content: "建议根据预算、线路、工单响应时间和退款政策逐项比较。" }
+        ]
+      }
+    ],
+    "unrelated.json",
+    "gemini"
+  ).conversationIds[0];
+
+  replaceSimilarConversations(ids.semanticSearch, "hash-1");
+
+  assert.ok(getSimilarConversations(ids.semanticSearch, 10).every((item) => item.conversationId !== unrelated));
+});

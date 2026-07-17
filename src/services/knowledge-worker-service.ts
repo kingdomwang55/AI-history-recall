@@ -4,6 +4,7 @@ import { enhanceKnowledgeWithModel } from "@/services/knowledge-model-service";
 import {
   claimKnowledgeJobs,
   completeKnowledgeJob,
+  enqueueKnowledgeBackfill,
   failKnowledgeJob,
   getKnowledgeQueueStatus
 } from "@/services/knowledge-queue-service";
@@ -14,6 +15,7 @@ import type { ConversationWithMessages } from "@/types/conversation";
 
 export interface KnowledgeBatchResult {
   claimed: number;
+  backfilled: number;
   completed: number;
   failed: number;
   modelDegraded: number;
@@ -83,6 +85,12 @@ export async function processKnowledgeBatch(
   const limit = Number.isFinite(requestedLimit)
     ? Math.max(1, Math.min(10, Math.floor(requestedLimit)))
     : 1;
+  let backfilled = 0;
+  let queueBefore = getKnowledgeQueueStatus();
+  if (queueBefore.pending === 0 && queueBefore.running === 0) {
+    backfilled += enqueueKnowledgeBackfill(100);
+    queueBefore = getKnowledgeQueueStatus();
+  }
   const jobs = claimKnowledgeJobs({ limit });
   const enhance = options.enhance ?? enhanceKnowledgeWithModel;
   let completed = 0;
@@ -117,11 +125,18 @@ export async function processKnowledgeBatch(
     }
   }
 
+  let queue = getKnowledgeQueueStatus();
+  if (queue.pending === 0 && queue.running === 0) {
+    backfilled += enqueueKnowledgeBackfill(100);
+    queue = getKnowledgeQueueStatus();
+  }
+
   return {
     claimed: jobs.length,
+    backfilled,
     completed,
     failed,
     modelDegraded,
-    queue: getKnowledgeQueueStatus()
+    queue
   };
 }
