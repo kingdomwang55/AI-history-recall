@@ -23,7 +23,8 @@ export function planDesktopResources({ platform = process.platform, arch = proce
   return {
     targetTriple,
     binaryName: `aihr-node-${targetTriple}${extension}`,
-    resources: ["daemon/daemon.mjs", "ui/server.js"]
+    runtimeName: `aihr-node${extension}`,
+    resources: ["daemon/daemon.mjs", "ui/server.js", `runtime/aihr-node${extension}`]
   };
 }
 
@@ -56,9 +57,32 @@ async function run(command, args) {
   });
 }
 
-function copyDirectory(source, destination) {
+function copyDirectory(source, destination, options = {}) {
   if (!fs.existsSync(source)) throw new Error(`Required desktop resource is missing: ${source}`);
-  fs.cpSync(source, destination, { recursive: true, force: true });
+  fs.cpSync(source, destination, {
+    recursive: true,
+    force: true,
+    dereference: options.dereference === true
+  });
+}
+
+function materializeSymlinks(root) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const entryPath = path.join(root, entry.name);
+    const stat = fs.lstatSync(entryPath);
+    if (stat.isSymbolicLink()) {
+      const target = fs.realpathSync(entryPath);
+      fs.rmSync(entryPath, { recursive: true, force: true });
+      if (fs.statSync(target).isDirectory()) {
+        copyDirectory(target, entryPath, { dereference: true });
+        materializeSymlinks(entryPath);
+      } else {
+        fs.copyFileSync(target, entryPath);
+      }
+      continue;
+    }
+    if (stat.isDirectory()) materializeSymlinks(entryPath);
+  }
 }
 
 export async function prepareDesktopResources(options = {}) {
@@ -69,15 +93,18 @@ export async function prepareDesktopResources(options = {}) {
     options.nodeBinary ?? process.env.AIHR_DESKTOP_NODE_BINARY
   );
 
-  await run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
+  if (options.skipWebBuild !== true && process.env.AIHR_SKIP_WEB_BUILD !== "1") {
+    await run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build"]);
+  }
 
   const tauriDir = path.join(rootDir, "src-tauri");
   const resourcesDir = path.join(tauriDir, "resources");
   const daemonDir = path.join(resourcesDir, "daemon");
   const uiDir = path.join(resourcesDir, "ui");
+  const runtimeDir = path.join(resourcesDir, "runtime");
   fs.rmSync(resourcesDir, { recursive: true, force: true });
   fs.mkdirSync(daemonDir, { recursive: true });
-  fs.mkdirSync(path.join(tauriDir, "binaries"), { recursive: true });
+  fs.mkdirSync(runtimeDir, { recursive: true });
 
   const { build } = await import("esbuild");
   await build({
@@ -94,7 +121,8 @@ export async function prepareDesktopResources(options = {}) {
     sourcemap: false
   });
 
-  copyDirectory(path.join(rootDir, ".next", "standalone"), uiDir);
+  copyDirectory(path.join(rootDir, ".next", "standalone"), uiDir, { dereference: true });
+  materializeSymlinks(uiDir);
   fs.rmSync(path.join(uiDir, "data"), { recursive: true, force: true });
   copyDirectory(path.join(rootDir, ".next", "static"), path.join(uiDir, ".next", "static"));
   if (fs.existsSync(path.join(rootDir, "public"))) {
@@ -106,11 +134,12 @@ export async function prepareDesktopResources(options = {}) {
   for (const packageName of ["better-sqlite3", "bindings", "file-uri-to-path"]) {
     copyDirectory(
       path.join(rootDir, "node_modules", packageName),
-      path.join(daemonDir, "node_modules", packageName)
+      path.join(daemonDir, "node_modules", packageName),
+      { dereference: true }
     );
   }
 
-  const runtimeDestination = path.join(tauriDir, "binaries", manifest.binaryName);
+  const runtimeDestination = path.join(runtimeDir, manifest.runtimeName);
   fs.copyFileSync(nodeBinary, runtimeDestination);
   if (platform !== "win32") fs.chmodSync(runtimeDestination, 0o755);
 

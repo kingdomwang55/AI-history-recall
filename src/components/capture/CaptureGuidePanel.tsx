@@ -26,6 +26,7 @@ export function CaptureGuidePanel({
   copyChromeExtensionsUrl: () => void; copyExtensionPath: () => void;
 }) {
   const running = extensionRun?.status === "running";
+  const backgroundSyncEnabled = extensionRun?.backgroundSync?.enabled === true;
 
   return (
     <section className="panel overflow-hidden lg:col-span-2">
@@ -43,8 +44,8 @@ export function CaptureGuidePanel({
         <div className="flex shrink-0 items-center gap-2">
           {extensionReady ? (
             <button type="button" onClick={toggleBackgroundSync} disabled={state !== "idle"} className="inline-flex h-10 items-center gap-2 rounded-[5px] border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-medium hover:bg-[var(--surface-subtle)] disabled:opacity-60">
-              {extensionRun?.backgroundSync?.enabled === false ? <Play size={15} /> : <Pause size={15} />}
-              {extensionRun?.backgroundSync?.enabled === false ? "开启后台同步" : "暂停后台同步"}
+              {backgroundSyncEnabled ? <Pause size={15} /> : <Play size={15} />}
+              {backgroundSyncEnabled ? "暂停后台同步" : "开启后台同步"}
             </button>
           ) : null}
           <button type="button" onClick={runGuidedExtensionFlow} disabled={state !== "idle"} className="inline-flex h-10 items-center gap-2 rounded-[5px] bg-[var(--accent)] px-4 text-sm font-semibold text-white hover:bg-[var(--accent-strong)] disabled:opacity-60">

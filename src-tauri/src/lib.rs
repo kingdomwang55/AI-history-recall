@@ -12,7 +12,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::open_window(app.clone(), "/");
         }))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(desktop)]

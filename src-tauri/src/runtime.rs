@@ -81,7 +81,7 @@ impl AppRuntime {
         })
     }
 
-    pub async fn ensure_daemon<R: Runtime>(&self, app: &AppHandle<R>) -> Result<u16, String> {
+    pub async fn ensure_daemon<R: Runtime>(&self, _app: &AppHandle<R>) -> Result<u16, String> {
         if let Some(port) = self
             .inner
             .lock()
@@ -93,6 +93,7 @@ impl AppRuntime {
             return Ok(port);
         }
         let daemon_dir = self.resource_dir.join("resources/daemon");
+        let node_runtime = self.node_runtime_path();
         let mut environment = self.shared_environment();
         environment.insert(
             "AIHR_DAEMON_PORT".into(),
@@ -103,7 +104,7 @@ impl AppRuntime {
             self.data_dir.to_string_lossy().into_owned(),
         );
         let child = spawn_node_sidecar(
-            app,
+            &node_runtime,
             &daemon_dir.join("daemon.mjs"),
             &daemon_dir,
             &environment,
@@ -159,7 +160,7 @@ impl AppRuntime {
         Ok(())
     }
 
-    async fn ensure_ui<R: Runtime>(&self, app: &AppHandle<R>) -> Result<u16, String> {
+    async fn ensure_ui<R: Runtime>(&self, _app: &AppHandle<R>) -> Result<u16, String> {
         if let Some(port) = self
             .inner
             .lock()
@@ -171,8 +172,9 @@ impl AppRuntime {
             return Ok(port);
         }
         let ui_dir = self.resource_dir.join("resources/ui");
+        let node_runtime = self.node_runtime_path();
         let child = spawn_node_sidecar(
-            app,
+            &node_runtime,
             &ui_dir.join("launcher.mjs"),
             &ui_dir,
             &self.shared_environment(),
@@ -293,6 +295,15 @@ impl AppRuntime {
         } else {
             requested
         }
+    }
+
+    fn node_runtime_path(&self) -> PathBuf {
+        let file_name = if cfg!(windows) {
+            "aihr-node.exe"
+        } else {
+            "aihr-node"
+        };
+        self.resource_dir.join("resources/runtime").join(file_name)
     }
 
     fn bootstrap_script(&self) -> String {

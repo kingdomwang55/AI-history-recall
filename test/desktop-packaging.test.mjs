@@ -10,8 +10,9 @@ const { reserveLoopbackPort, uiEnvironment } = await import("../desktop/ui-entry
 test("desktop package plan contains daemon and UI entrypoints", () => {
   const manifest = planDesktopResources({ platform: "darwin", arch: "arm64" });
 
-  assert.deepEqual(manifest.resources, ["daemon/daemon.mjs", "ui/server.js"]);
+  assert.deepEqual(manifest.resources, ["daemon/daemon.mjs", "ui/server.js", "runtime/aihr-node"]);
   assert.equal(manifest.binaryName, "aihr-node-aarch64-apple-darwin");
+  assert.equal(manifest.runtimeName, "aihr-node");
   assert.equal(manifest.targetTriple, "aarch64-apple-darwin");
 });
 
@@ -19,6 +20,7 @@ test("desktop package plan names the Windows sidecar executable", () => {
   const manifest = planDesktopResources({ platform: "win32", arch: "x64" });
 
   assert.equal(manifest.binaryName, "aihr-node-x86_64-pc-windows-msvc.exe");
+  assert.equal(manifest.runtimeName, "aihr-node.exe");
   assert.equal(manifest.targetTriple, "x86_64-pc-windows-msvc");
 });
 
@@ -35,6 +37,8 @@ test("packaging script excludes development data and carries daemon native depen
 
   assert.match(script, /rmSync\(path\.join\(uiDir, "data"\)/);
   assert.match(script, /\["better-sqlite3", "bindings", "file-uri-to-path"\]/);
+  assert.match(script, /dereference:\s*options\.dereference === true/);
+  assert.match(script, /AIHR_SKIP_WEB_BUILD/);
   assert.match(script, /createRequire as __aihrCreateRequire/);
   assert.match(script, /const require = __aihrCreateRequire/);
 });
@@ -92,6 +96,8 @@ test("Tauri bundle declares product metadata, icons, and packaged resources", ()
   assert.deepEqual(config.bundle.resources, [
     "resources/daemon",
     "resources/ui",
-    "resources/extension"
+    "resources/extension",
+    "resources/runtime"
   ]);
+  assert.equal(config.bundle.externalBin, undefined);
 });

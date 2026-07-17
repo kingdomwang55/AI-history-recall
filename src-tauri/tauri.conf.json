@@ -25,13 +25,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/aihr-node"
-    ],
     "resources": [
       "resources/daemon",
       "resources/ui",
-      "resources/extension"
+      "resources/extension",
+      "resources/runtime"
     ]
   }
 }

@@ -312,6 +312,7 @@ function dedupeTargets(targets) {
 function buildDiscoverOptions(options) {
   return {
     mode: options?.mode === "incremental" ? "incremental" : "full",
+    background: options?.background === true,
     maxItems: options?.maxItems || (options?.mode === "incremental" ? 50 : 1000),
     maxScrolls: options?.maxScrolls || 200,
     delayMs: options?.delayMs || 3200,
@@ -852,6 +853,7 @@ async function discoverPlatform(platform, openerTabId, options) {
   let discoveryWindowId = null;
   let borrowedTab = null;
   let tab;
+  const isBackgroundRun = options?.background === true;
 
   if (platform === "qwen") {
     borrowedTab = await findLoadedQwenTab();
@@ -859,6 +861,15 @@ async function discoverPlatform(platform, openerTabId, options) {
       tab = borrowedTab.tab;
       await sendTabMessage(tab.id, { type: "AIHR_QWEN_PREPARE_HISTORY" }, 5000);
       await sleep(800);
+    } else if (isBackgroundRun) {
+      return {
+        ok: true,
+        platform,
+        targets: [],
+        scannedTitles: [],
+        failures: [],
+        stopReason: "background_requires_open_qwen_tab"
+      };
     } else {
       borrowedTab = null;
       const discoveryWindow = await createWindow({
@@ -1095,7 +1106,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
 async function getBackgroundSyncSettings() {
   const stored = await chromeApi.storage.get("aihrBackgroundSyncSettings");
   return {
-    enabled: stored.aihrBackgroundSyncSettings?.enabled !== false,
+    enabled: stored.aihrBackgroundSyncSettings?.enabled === true,
     intervalMinutes: Math.min(
       Math.max(Number(stored.aihrBackgroundSyncSettings?.intervalMinutes) || 360, 60),
       1440
@@ -1185,6 +1196,7 @@ async function runBackgroundAutoPilot() {
     options: {
       platforms,
       mode: "incremental",
+      background: true,
       maxItems: settings.scanLimit,
       maxScrolls: 30,
       delayMs: 3800,

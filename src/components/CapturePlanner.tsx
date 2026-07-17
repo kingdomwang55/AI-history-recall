@@ -533,7 +533,7 @@ export function CapturePlanner() {
   async function toggleBackgroundSync() {
     setState("extension");
     try {
-      const enabled = extensionRun?.backgroundSync?.enabled !== false;
+      const enabled = extensionRun?.backgroundSync?.enabled === true;
       await requestExtension({
         type: "AIHR_WEB_SET_BACKGROUND_SYNC",
         enabled: !enabled
