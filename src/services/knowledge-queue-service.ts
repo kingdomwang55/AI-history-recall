@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getDb, nowIso } from "@/lib/db";
+import type { MessageRole } from "@/types/conversation";
 
 export type KnowledgeTaskType = "process";
 export type KnowledgeJobStatus = "pending" | "running" | "completed" | "failed";
@@ -32,6 +33,23 @@ export interface KnowledgeQueueStatus {
   completed: number;
   failed: number;
   total: number;
+}
+
+export const KNOWLEDGE_PROCESSOR_VERSION = "knowledge-v1";
+
+export function knowledgeContentFingerprint(input: {
+  title: string;
+  messages: Array<{ role: MessageRole; content: string }>;
+}) {
+  const normalized = {
+    processorVersion: KNOWLEDGE_PROCESSOR_VERSION,
+    title: input.title.replace(/\s+/g, " ").trim(),
+    messages: input.messages.map((message) => [
+      message.role,
+      message.content.replace(/\r\n/g, "\n").trim()
+    ])
+  };
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
 type KnowledgeJobRow = {

@@ -12,7 +12,8 @@ const {
   completeKnowledgeJob,
   enqueueKnowledgeJob,
   failKnowledgeJob,
-  getKnowledgeQueueStatus
+  getKnowledgeQueueStatus,
+  knowledgeContentFingerprint
 } = await import("../src/services/knowledge-queue-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
 
@@ -37,6 +38,33 @@ function useTempDb() {
 test.afterEach(() => {
   closeDb();
   delete process.env.AIHR_DB_PATH;
+});
+
+test("content fingerprints normalize titles and line endings but preserve message order", () => {
+  const first = knowledgeContentFingerprint({
+    title: "  Semantic   search  ",
+    messages: [
+      { role: "user", content: "Question\r\nline" },
+      { role: "assistant", content: "Answer" }
+    ]
+  });
+  const normalized = knowledgeContentFingerprint({
+    title: "Semantic search",
+    messages: [
+      { role: "user", content: "Question\nline" },
+      { role: "assistant", content: "Answer" }
+    ]
+  });
+  const reordered = knowledgeContentFingerprint({
+    title: "Semantic search",
+    messages: [
+      { role: "assistant", content: "Answer" },
+      { role: "user", content: "Question\nline" }
+    ]
+  });
+
+  assert.equal(first, normalized);
+  assert.notEqual(first, reordered);
 });
 
 test("enqueue deduplicates the same fingerprint", () => {

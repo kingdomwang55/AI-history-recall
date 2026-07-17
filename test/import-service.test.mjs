@@ -9,6 +9,7 @@ register("./path-alias-loader.mjs", import.meta.url);
 
 const { importParsedConversations } = await import("../src/services/import-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
+const { getKnowledgeQueueStatus } = await import("../src/services/knowledge-queue-service.ts");
 
 function closeDb() {
   if (globalThis.aiHistoryRecallDb) {
@@ -64,6 +65,13 @@ test("skips duplicate source URLs without duplicating messages", () => {
   assert.equal(conversationCount.count, 1);
   assert.equal(messageCount.count, 2);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM semantic_index").get().count, 2);
+  assert.deepEqual(getKnowledgeQueueStatus(), {
+    pending: 1,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    total: 1
+  });
 });
 
 test("merges appended messages into an existing source URL without replacing user metadata", () => {
@@ -183,6 +191,13 @@ test("merges appended messages into an existing source URL without replacing use
   assert.equal(third.importedMessages, 0);
   assert.equal(third.updatedConversations, 0);
   assert.equal(third.skippedDuplicates, 1);
+  assert.deepEqual(getKnowledgeQueueStatus(), {
+    pending: 1,
+    running: 0,
+    completed: 1,
+    failed: 0,
+    total: 2
+  });
 });
 
 test("merges from an existing tail anchor when a later snapshot gains leading context", () => {

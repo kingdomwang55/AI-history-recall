@@ -77,6 +77,17 @@ test("deleteConversation removes canonical and derived conversation data", () =>
   assert.equal(countRows("notes", "WHERE conversation_id = ?", [conversationId]), 0);
   assert.equal(countRows("search_index", "WHERE conversation_id = ?", [conversationId]), 0);
   assert.equal(countRows("semantic_index", "WHERE conversation_id = ?", [conversationId]), 0);
+  assert.equal(countRows("knowledge_jobs", "WHERE conversation_id = ?", [conversationId]), 0);
+});
+
+test("metadata edits do not enqueue new knowledge work", () => {
+  useTempDb();
+  const conversationId = seedConversation();
+  const before = countRows("knowledge_jobs");
+
+  updateConversationMetadata(conversationId, ["manual-only"], "Metadata should not alter the transcript fingerprint");
+
+  assert.equal(countRows("knowledge_jobs"), before);
 });
 
 test("reindexSearch rebuilds FTS and semantic rows from canonical messages", () => {

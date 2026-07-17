@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { getDb, nowIso } from "@/lib/db";
 import { findAdapter } from "@/import/adapters";
 import { semanticIndexParams } from "@/services/semantic-index-service";
+import {
+  enqueueKnowledgeJob,
+  knowledgeContentFingerprint
+} from "@/services/knowledge-queue-service";
 import type {
   ImportFileInput,
   ImportResult,
@@ -295,16 +299,26 @@ function persistConversations(
               appendedMessages.at(-1)?.createdAt ??
               importedAt
           });
+          enqueueKnowledgeJob(
+            existing.id,
+            "process",
+            knowledgeContentFingerprint({
+              title: existing.title,
+              messages: [...existingMessages, ...appendedMessages]
+            }),
+            importedAt
+          );
           updatedConversations += 1;
           conversationIds.push(existing.id);
           continue;
         }
       }
 
+      const title = conversation.title.trim() || rawFileName;
       insertConversation.run({
         id: conversationId,
         sourcePlatform,
-        title: conversation.title.trim() || rawFileName,
+        title,
         createdAt: conversation.createdAt ?? null,
         updatedAt: conversation.updatedAt ?? null,
         importedAt,
@@ -330,7 +344,7 @@ function persistConversations(
           conversationId,
           messageId,
           role,
-          title: conversation.title,
+          title,
           content: message.content,
           sourcePlatform
         });
@@ -340,7 +354,7 @@ function persistConversations(
             conversationId,
             messageId,
             role,
-            title: conversation.title,
+            title,
             content: message.content,
             sourcePlatform,
             importedAt
@@ -358,6 +372,13 @@ function persistConversations(
           insertConversationTag.run(conversationId, row.id);
         }
       }
+
+      enqueueKnowledgeJob(
+        conversationId,
+        "process",
+        knowledgeContentFingerprint({ title, messages }),
+        importedAt
+      );
 
       conversationIds.push(conversationId);
       importedConversations += 1;
