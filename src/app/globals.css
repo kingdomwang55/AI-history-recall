@@ -137,6 +137,47 @@ mark { border-radius: 2px; background: #fff1a8; color: inherit; padding: 0 2px; 
 .platform-status-matrix tbody tr { transition: background-color 120ms ease; }
 .platform-status-matrix tbody tr:hover { background: color-mix(in srgb, var(--bg-hover) 58%, transparent); }
 
+.health-workspace { display: grid; gap: 22px; }
+.health-summary-band { display: flex; min-height: 116px; align-items: center; gap: 16px; border-block: 1px solid var(--line); padding: 20px 2px; }
+.health-summary-icon { display: inline-flex; height: 42px; width: 42px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; background: var(--bg-secondary); }
+.health-summary-icon svg { height: 22px; width: 22px; }
+.health-summary-label { color: var(--muted); font-size: 11px; font-weight: 600; }
+.health-summary-band h2 { margin: 2px 0 0; font-size: 21px; font-weight: 650; }
+.health-summary-band p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.health-summary-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.health-summary-actions button { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 7px 11px; color: var(--foreground); font-size: 12px; font-weight: 600; }
+.health-summary-actions button:hover { background: var(--bg-secondary); }
+.health-summary-actions button:disabled { opacity: .6; }
+.health-summary-band.health-status-healthy, .health-status-healthy { color: var(--success); }
+.health-summary-band.health-status-degraded, .health-status-degraded { color: var(--warning); }
+.health-summary-band.health-status-unavailable, .health-status-unavailable { color: var(--danger); }
+.health-summary-band.health-status-disabled, .health-status-disabled { color: var(--muted); }
+.health-notice { margin: -12px 0 0; color: var(--muted-strong); font-size: 12px; }
+.health-groups { display: grid; gap: 18px; }
+.health-group { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.health-group-header { display: flex; min-height: 46px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 0 16px; }
+.health-group-header h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.health-group-header span { color: var(--muted); font-size: 11px; }
+.health-check-list { display: grid; }
+.health-check-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 76px; border-bottom: 1px solid var(--line); padding: 14px 16px; scroll-margin-top: calc(var(--topbar-height) + 20px); }
+.health-check-row:last-child { border-bottom: 0; }
+.health-check-icon { display: inline-flex; height: 28px; width: 28px; align-items: center; justify-content: center; }
+.health-check-icon svg { height: 18px; width: 18px; }
+.health-check-copy { min-width: 0; }
+.health-check-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.health-check-heading h3 { margin: 0; color: var(--foreground); font-size: 13px; font-weight: 650; }
+.health-status-label { border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 650; }
+.health-status-label.health-status-healthy { background: var(--success-soft); }
+.health-status-label.health-status-degraded { background: var(--warning-soft); }
+.health-status-label.health-status-unavailable { background: var(--danger-soft); }
+.health-status-label.health-status-disabled { background: var(--bg-secondary); }
+.health-check-copy p { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted-strong); font-size: 12px; }
+.health-repair-link { display: inline-flex; max-width: 220px; align-items: center; gap: 5px; border: 0; background: transparent; padding: 0; color: var(--primary); font-size: 11px; font-weight: 600; text-decoration: none; }
+.health-repair-link:disabled { color: var(--text-disabled); }
+.health-repair-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-spin { animation: health-spin 700ms linear infinite; }
+@keyframes health-spin { to { transform: rotate(360deg); } }
+
 button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
 button:disabled { color: var(--text-disabled); }
 .platform-status-matrix tr:last-child td { border-bottom: 0; }
@@ -171,4 +212,8 @@ button:disabled { color: var(--text-disabled); }
   .conversation-transcript { border-right: 0; }
   .conversation-inspector { position: static; max-height: none; border-top: 1px solid var(--line); }
   .platform-status-matrix { display: block; overflow-x: auto; white-space: nowrap; }
+  .health-summary-band { align-items: flex-start; flex-wrap: wrap; }
+  .health-summary-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .health-check-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .health-repair-link { grid-column: 2; max-width: 100%; }
 }

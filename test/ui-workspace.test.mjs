@@ -72,6 +72,26 @@ test("capture page presents a platform status matrix before advanced controls", 
   assert.match(guide, /首次使用设置/);
 });
 
+test("health workspace exposes evidence and repair actions", async () => {
+  const page = await source("src/components/HealthDashboard.tsx");
+
+  assert.match(page, /evidence/);
+  assert.match(page, /复制诊断报告/);
+  assert.match(page, /修复/);
+  assert.match(page, /重新检查/);
+});
+
+test("extension popup probes local health and current adapter diagnostics", async () => {
+  const html = await source("extension/popup.html");
+  const popup = await source("extension/popup.js");
+
+  assert.match(html, /localServiceStatus/);
+  assert.match(html, /adapterStatus/);
+  assert.match(html, /core\/api-client\.js/);
+  assert.match(popup, /AIHR_API\.request\("\/api\/health"/);
+  assert.match(popup, /AIHR_PING/);
+});
+
 test("global styles include narrow-screen workspace fallbacks", async () => {
   const css = await source("src/app/globals.css");
 

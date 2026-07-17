@@ -76,6 +76,7 @@ test("diagnostic report removes secrets content and absolute paths", () => {
 test("routine health polling is read-only and reports disabled model", () => {
   useTempDb();
   const db = getDb();
+  const before = db.totalChanges;
 
   const first = getHealthReport();
   const second = getHealthReport();
@@ -84,6 +85,7 @@ test("routine health polling is read-only and reports disabled model", () => {
   assert.equal(first.checks.find((check) => check.id === "model")?.status, "disabled");
   assert.equal(second.checks.length, first.checks.length);
   assert.equal(snapshots.count, 0);
+  assert.equal(db.totalChanges, before);
 });
 
 test("semantic coverage ignores rows from a previously configured model", () => {

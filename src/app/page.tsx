@@ -1,13 +1,17 @@
 import Link from "next/link";
-import { ArrowRight, Bot, Database, MessageSquareText, Search, Upload } from "lucide-react";
+import { Activity, ArrowRight, Bot, Database, MessageSquareText, Search, Upload } from "lucide-react";
 import { formatDateTime, platformLabel } from "@/lib/format";
 import { getDashboardStats } from "@/services/conversation-service";
 import { PlatformBadge } from "@/components/PlatformBadge";
+import { getHealthReport } from "@/services/health-check-service";
 
 export const dynamic = "force-dynamic";
 
 export default function HomePage() {
   const stats = getDashboardStats();
+  const health = getHealthReport();
+  const healthCopy = health.status === "healthy" ? "运行正常" : health.status === "degraded" ? "需要关注" : "服务不可用";
+  const healthDot = health.status === "healthy" ? "status-dot-success" : health.status === "degraded" ? "status-dot-warning" : "status-dot-danger";
   const maxPlatformCount = Math.max(...stats.platformDistribution.map((item) => item.count), 1);
 
   return (
@@ -39,10 +43,11 @@ export default function HomePage() {
             <MessageSquareText size={19} className="text-[var(--accent)]" strokeWidth={1.8} />
             <div><div className="text-2xl font-semibold tabular-nums">{stats.messageCount}</div><div className="text-xs text-[var(--muted)]">已索引消息</div></div>
           </div>
-          <div className="flex items-center gap-4 px-5 py-4">
-            <span className="status-dot status-dot-success" />
-            <div><div className="font-semibold">本地 SQLite</div><div className="text-xs text-[var(--muted)]">存储与索引运行正常</div></div>
-          </div>
+          <Link href="/health" className="flex items-center gap-4 px-5 py-4 hover:bg-[var(--surface-subtle)]">
+            <Activity size={19} className="text-[var(--accent)]" strokeWidth={1.8} />
+            <span className={`status-dot ${healthDot}`} />
+            <div className="min-w-0"><div className="font-semibold">{healthCopy}</div><div className="truncate text-xs text-[var(--muted)]">查看本地服务诊断</div></div>
+          </Link>
         </div>
       </section>
 

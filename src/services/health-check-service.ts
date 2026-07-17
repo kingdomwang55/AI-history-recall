@@ -89,16 +89,8 @@ function databaseChecks(): HealthCheck[] {
 
   try {
     const result = db.pragma("quick_check", { simple: true }) as string;
-    db.exec("SAVEPOINT health_write_probe");
-    try {
-      const timestamp = nowIso();
-      db.prepare(
-        "INSERT INTO health_check_runs (id, status, report_json, generated_at, created_at) VALUES (?, 'healthy', '{}', ?, ?)"
-      ).run(randomUUID(), timestamp, timestamp);
-      db.exec("ROLLBACK TO health_write_probe");
-    } finally {
-      db.exec("RELEASE health_write_probe");
-    }
+    const dbPath = process.env.AIHR_DB_PATH ?? path.join(process.cwd(), "data", "ai-history-recall.sqlite");
+    fs.accessSync(dbPath, fs.constants.R_OK | fs.constants.W_OK);
     checks.push({
       id: "database",
       label: "本地数据库",

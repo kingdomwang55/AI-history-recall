@@ -1,5 +1,8 @@
 const statusNode = document.getElementById("status");
-const LOCAL_API_TOKEN = (globalThis.AIHR_LOCAL_API_TOKEN || "").trim();
+const localServiceStatusNode = document.getElementById("localServiceStatus");
+const localServiceDot = document.getElementById("localServiceDot");
+const adapterStatusNode = document.getElementById("adapterStatus");
+const adapterDot = document.getElementById("adapterDot");
 const captureButton = document.getElementById("capture");
 const fullCaptureButton = document.getElementById("fullCapture");
 const allPlatformsCaptureButton = document.getElementById("allPlatformsCapture");
@@ -11,10 +14,35 @@ const delayMsInput = document.getElementById("delayMs");
 
 let pollTimer = null;
 
-function localApiHeaders(headers = {}) {
-  return LOCAL_API_TOKEN
-    ? { ...headers, "X-AIHR-API-Token": LOCAL_API_TOKEN }
-    : headers;
+function setHealthState(node, dot, state, text) {
+  node.textContent = text;
+  dot.dataset.state = state;
+  node.title = text;
+}
+
+async function refreshHealthSummary() {
+  try {
+    const response = await globalThis.AIHR_API.request("/api/health", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const health = data?.health;
+    const state = health?.status === "healthy" ? "healthy" : "degraded";
+    const label = health?.status === "healthy" ? "Connected · healthy" : "Connected · needs attention";
+    setHealthState(localServiceStatusNode, localServiceDot, state, label);
+  } catch {
+    setHealthState(localServiceStatusNode, localServiceDot, "unavailable", "Not reachable");
+  }
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab");
+    const diagnostics = await sendMessage(tab.id, { type: "AIHR_PING" });
+    if (!diagnostics?.ok || !diagnostics.platform) throw new Error("Unsupported page");
+    const version = diagnostics.version ? ` · v${diagnostics.version}` : "";
+    setHealthState(adapterStatusNode, adapterDot, "healthy", `${diagnostics.platform}${version}`);
+  } catch {
+    setHealthState(adapterStatusNode, adapterDot, "degraded", "No supported page detected");
+  }
 }
 
 function sendMessage(tabId, message) {
@@ -59,9 +87,9 @@ async function captureCurrentTab() {
     return;
   }
 
-  const response = await fetch("http://localhost:3000/api/extension/capture-page", {
+  const response = await globalThis.AIHR_API.request("/api/extension/capture-page", {
     method: "POST",
-    headers: localApiHeaders({ "content-type": "application/json" }),
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(result)
   });
   const data = await response.json();
@@ -257,6 +285,7 @@ clearStatusButton.addEventListener("click", () => {
 });
 
 refreshStatus().catch(() => undefined);
+refreshHealthSummary().catch(() => undefined);
 pollTimer = setInterval(() => {
   refreshStatus().catch(() => undefined);
 }, 1600);

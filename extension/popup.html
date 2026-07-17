@@ -10,6 +10,42 @@
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #171717;
       }
+      .health-summary {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 6px;
+        border-bottom: 1px solid #e5e5e5;
+        padding-bottom: 12px;
+      }
+      .health-row {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .health-row strong {
+        width: 82px;
+        flex: 0 0 auto;
+        font-weight: 650;
+      }
+      .health-value {
+        min-width: 0;
+        overflow: hidden;
+        color: #525252;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .health-dot {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #a3a3a3;
+      }
+      .health-dot[data-state="healthy"] { background: #248a3d; }
+      .health-dot[data-state="degraded"] { background: #a9670a; }
+      .health-dot[data-state="unavailable"] { background: #d70015; }
       button {
         width: 100%;
         border: 0;
@@ -56,6 +92,18 @@
     </style>
   </head>
   <body>
+    <section class="health-summary" aria-label="Connection status">
+      <div class="health-row">
+        <span id="localServiceDot" class="health-dot"></span>
+        <strong>Local service</strong>
+        <span id="localServiceStatus" class="health-value">Checking...</span>
+      </div>
+      <div class="health-row">
+        <span id="adapterDot" class="health-dot"></span>
+        <strong>Page adapter</strong>
+        <span id="adapterStatus" class="health-value">Checking...</span>
+      </div>
+    </section>
     <button id="capture" class="primary">Capture Current Conversation</button>
     <label>
       Max conversations
@@ -72,6 +120,9 @@
     <button id="clearStatus" class="danger">Clear Status</button>
     <div id="status">AI History Recall must be running at http://localhost:3000</div>
     <script src="config.js"></script>
+    <script src="core/constants.js"></script>
+    <script src="core/chrome-api.js"></script>
+    <script src="core/api-client.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Database, Search, Upload } from "lucide-react";
+import { Activity, Bot, Database, Search, Upload } from "lucide-react";
 import { RecallLensLogo } from "@/components/RecallLensLogo";
 
 const navItems = [
   { href: "/", label: "首页", icon: Database },
   { href: "/capture", label: "采集", icon: Bot },
   { href: "/search", label: "搜索", icon: Search },
-  { href: "/import", label: "导入", icon: Upload }
+  { href: "/import", label: "导入", icon: Upload },
+  { href: "/health", label: "健康", icon: Activity }
 ];
 
 function isActive(pathname: string, href: string) {
