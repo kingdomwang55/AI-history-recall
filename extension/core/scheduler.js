@@ -31,6 +31,10 @@
       return alarms.clear(NAMES.capture);
     }
 
+    function scheduleQueueLease(leaseUntil) {
+      return alarms.create(NAMES.capture, { when: leaseUntil });
+    }
+
     async function scheduleAutoPilot(delayMs = DELAYS.autoPilotInterval) {
       const scheduledAt = now() + Math.max(delayMs, 60000);
       await storage.set({ [AUTO_PILOT_NEXT_KEY]: scheduledAt });
@@ -83,6 +87,7 @@
       enabledDelay: () => 2 * 60 * 1000 + Math.floor(random() * 3 * 60 * 1000),
       retryUntil: () => new Date(now() + DELAYS.autoPilotRetry).toISOString(),
       scheduleQueueStep,
+      scheduleQueueLease,
       clearQueue,
       scheduleAutoPilot,
       getAutoPilotNextAt,

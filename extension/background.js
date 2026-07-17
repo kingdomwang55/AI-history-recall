@@ -30,8 +30,13 @@ const PLATFORM_HISTORY_URLS = {
   deepseek: "https://chat.deepseek.com/",
   qwen: "https://www.qianwen.com/"
 };
-
-let activeRun = null;
+captureQueue.configure({
+  extensionVersion: EXTENSION_VERSION,
+  extensionBuildId: EXTENSION_BUILD_ID,
+  defaultDelayMs: DEFAULT_DELAY_MS,
+  defaultJitterMs: DEFAULT_JITTER_MS,
+  armLease: scheduler.scheduleQueueLease
+});
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,26 +171,6 @@ async function findLoadedQwenTab() {
   )[0];
 }
 
-async function saveStatus(patch) {
-  activeRun = {
-    ...activeRun,
-    extensionVersion: EXTENSION_VERSION,
-    extensionBuildId: EXTENSION_BUILD_ID,
-    ...patch,
-    updatedAt: new Date().toISOString()
-  };
-  await captureQueue.write(activeRun);
-}
-
-async function loadStatus() {
-  activeRun = (await captureQueue.read()) || activeRun;
-  if (activeRun) {
-    activeRun.extensionVersion = activeRun.extensionVersion || EXTENSION_VERSION;
-    activeRun.extensionBuildId = activeRun.extensionBuildId || EXTENSION_BUILD_ID;
-  }
-  return activeRun;
-}
-
 function idleStatus() {
   return {
     status: "idle",
@@ -227,7 +212,7 @@ async function postDiscovery(discovery) {
       extensionVersion: EXTENSION_VERSION,
       extensionBuildId: EXTENSION_BUILD_ID,
       lastSeenUrl: discovery.targets?.[0]?.url || null,
-      mode: activeRun?.mode === "incremental" ? "incremental" : "full"
+      mode: captureQueue.snapshot()?.mode === "incremental" ? "incremental" : "full"
     })
   }).catch(() => undefined);
 }
@@ -320,14 +305,6 @@ function dedupeTargets(targets) {
   return unique;
 }
 
-function countTargetsByPlatform(targets) {
-  return targets.reduce((counts, target) => {
-    const platform = target?.platform || "unknown";
-    counts[platform] = (counts[platform] || 0) + 1;
-    return counts;
-  }, {});
-}
-
 function buildDiscoverOptions(options) {
   return {
     mode: options?.mode === "incremental" ? "incremental" : "full",
@@ -341,14 +318,14 @@ function buildDiscoverOptions(options) {
 }
 
 async function shouldStopRun() {
-  activeRun = (await captureQueue.read()) || activeRun;
-  return activeRun?.stopRequested === true;
+  return (await captureQueue.load())?.stopRequested === true;
 }
 
 async function saveDiscoveryProgress(progress) {
-  await saveStatus({
+  const run = captureQueue.snapshot() || (await captureQueue.load());
+  await captureQueue.patch({
     discoveryProgress: {
-      ...activeRun?.discoveryProgress,
+      ...run?.discoveryProgress,
       ...progress,
       updatedAt: new Date().toISOString()
     }
@@ -700,35 +677,6 @@ async function discoverClickableHistoryPlatform(platform, tab, options) {
   };
 }
 
-async function initializeQueue(targets, options) {
-  if (targets.length === 0) {
-    await saveStatus({
-      phase: "completed",
-      status: "completed",
-      queue: [],
-      nextIndex: 0,
-      totalTargets: 0,
-      processing: false
-    });
-    return;
-  }
-
-  await saveStatus({
-    phase: "capturing",
-    queue: targets,
-    queuePlatformCounts: countTargetsByPlatform(targets),
-    currentTarget: null,
-    discoveryProgress: null,
-    nextIndex: 0,
-    totalTargets: targets.length,
-    options: {
-      pageDelayMs: options?.pageDelayMs || DEFAULT_DELAY_MS,
-      pageJitterMs: options?.pageJitterMs || DEFAULT_JITTER_MS
-    }
-  });
-  scheduler.scheduleQueueStep(1000);
-}
-
 async function finalizeIncrementalRun(run) {
   if (run?.mode !== "incremental" || run.syncFinalized) return;
   const platformResults = run.platformResults || {};
@@ -753,45 +701,16 @@ async function finalizeIncrementalRun(run) {
     }).catch(() => undefined);
   }
 
-  await saveStatus({ syncFinalized: true });
+  await captureQueue.patch({ syncFinalized: true });
   await scheduleBackgroundAutoPilot(AUTO_PILOT_INTERVAL_MS);
 }
 
 async function hasRunningTask() {
-  const run = await loadStatus();
-  return run?.status === "running";
-}
-
-async function resumeQueue() {
-  const run = await loadStatus();
-  const queue = Array.isArray(run?.queue) ? run.queue : [];
-  const nextIndex = Number(run?.nextIndex) || 0;
-
-  if (!run || queue.length === 0 || nextIndex >= queue.length) {
-    throw new Error("No resumable capture queue.");
-  }
-
-  await saveStatus({
-    status: "running",
-    phase: "capturing",
-    stopRequested: false,
-    processing: false,
-    processingStartedAt: null,
-    leaseUntil: null
-  });
-  scheduler.scheduleQueueStep(1000);
-  return activeRun;
-}
-
-async function clearRunStatus() {
-  activeRun = null;
-  await scheduler.clearQueue();
-  await captureQueue.clear();
+  return (await captureQueue.load())?.status === "running";
 }
 
 async function restoreQueueAlarm() {
   const run = await captureQueue.restore(Date.now());
-  activeRun = run || activeRun;
   if (run?.status === "running" && run.phase === "capturing") {
     const leaseUntil = Number(run.leaseUntil) || 0;
     const remainingLease = run.processing && leaseUntil > Date.now() ? leaseUntil - Date.now() : 1500;
@@ -800,9 +719,9 @@ async function restoreQueueAlarm() {
 }
 
 async function recoverInterruptedDiscovery() {
-  const run = await loadStatus();
+  const run = await captureQueue.load();
   if (run?.status !== "running" || !String(run.phase || "").startsWith("discovering")) return;
-  await saveStatus({
+  await captureQueue.patch({
     status: "failed",
     phase: "discovery_interrupted",
     processing: false,
@@ -811,17 +730,11 @@ async function recoverInterruptedDiscovery() {
 }
 
 async function processQueueStep() {
-  const run = await loadStatus();
+  const run = await captureQueue.load();
   if (!run || run.status !== "running" || run.phase !== "capturing") return;
 
   if (run.stopRequested) {
-    await saveStatus({
-      status: "stopped",
-      phase: "stopped",
-      processing: false,
-      processingStartedAt: null,
-      leaseUntil: null
-    });
+    await captureQueue.stop();
     return;
   }
 
@@ -829,7 +742,7 @@ async function processQueueStep() {
     const startedAt = run.processingStartedAt ? Date.parse(run.processingStartedAt) : 0;
     const leaseUntil = Number(run.leaseUntil) || (startedAt ? startedAt + captureQueue.leaseMs : 0);
     if (leaseUntil && leaseUntil <= Date.now()) {
-      activeRun = (await captureQueue.restore(Date.now())) || activeRun;
+      await captureQueue.restore(Date.now());
       scheduler.scheduleQueueStep(1000);
       return;
     }
@@ -839,79 +752,24 @@ async function processQueueStep() {
 
   const queue = Array.isArray(run.queue) ? run.queue : [];
   const nextIndex = Number(run.nextIndex) || 0;
-  const target = queue[nextIndex];
 
-  if (!target) {
+  if (!queue[nextIndex]) {
     await finalizeIncrementalRun(run);
-    await saveStatus({
-      status: "completed",
-      phase: "completed",
-      processing: false,
-      processingStartedAt: null,
-      leaseUntil: null,
-      currentTarget: null
-    });
+    await captureQueue.complete();
     return;
   }
 
-  const processingStartedAt = Date.now();
-  await saveStatus({
-    processing: true,
-    processingStartedAt: new Date(processingStartedAt).toISOString(),
-    leaseUntil: processingStartedAt + captureQueue.leaseMs,
-    currentTarget: {
-      platform: target.platform,
-      title: target.title,
-      url: target.url,
-      index: nextIndex + 1,
-      total: queue.length
-    }
-  });
+  const claimed = await captureQueue.claim();
+  const target = claimed.queue[claimed.nextIndex];
 
   try {
     const data = await captureTarget(target);
-    const platformResult = activeRun.platformResults?.[target.platform] || {};
-    await saveStatus({
-      processed: (activeRun.processed || 0) + 1,
-      nextIndex: nextIndex + 1,
-      importedConversations:
-        (activeRun.importedConversations || 0) + (data.imported?.importedConversations || 0),
-      importedMessages: (activeRun.importedMessages || 0) + (data.imported?.importedMessages || 0),
-      skippedDuplicates: (activeRun.skippedDuplicates || 0) + (data.imported?.skippedDuplicates || 0),
-      platformResults: {
-        ...(activeRun.platformResults || {}),
-        [target.platform]: {
-          newConversations:
-            (platformResult.newConversations || 0) + (data.imported?.importedConversations || 0),
-          newMessages: (platformResult.newMessages || 0) + (data.imported?.importedMessages || 0)
-        }
-      },
-      processing: false,
-      processingStartedAt: null,
-      leaseUntil: null,
-      currentTarget: null
-    });
+    await captureQueue.succeed(data);
   } catch (error) {
-    await saveStatus({
-      processed: (activeRun.processed || 0) + 1,
-      nextIndex: nextIndex + 1,
-      failures: [
-        ...(activeRun.failures || []),
-        {
-          platform: target.platform,
-          url: target.url,
-          title: target.title,
-          error: error instanceof Error ? error.message : "Capture failed."
-        }
-      ].slice(-80),
-      processing: false,
-      processingStartedAt: null,
-      leaseUntil: null,
-      currentTarget: null
-    });
+    await captureQueue.fail(error);
   }
 
-  const latest = await loadStatus();
+  const latest = await captureQueue.load();
   if (latest?.status === "running" && latest.phase === "capturing") {
     scheduler.scheduleQueueStep(
       randomDelay(
@@ -923,11 +781,11 @@ async function processQueueStep() {
 }
 
 async function runFullCapture({ sourceTabId, options }) {
-  if (activeRun?.status === "running") {
+  if (captureQueue.snapshot()?.status === "running") {
     throw new Error("A full capture is already running.");
   }
 
-  activeRun = {
+  let run = {
     id: crypto.randomUUID(),
     extensionVersion: EXTENSION_VERSION,
     extensionBuildId: EXTENSION_BUILD_ID,
@@ -944,7 +802,7 @@ async function runFullCapture({ sourceTabId, options }) {
     failures: [],
     stopRequested: false
   };
-  await captureQueue.write(activeRun);
+  run = await captureQueue.start(run);
 
   try {
     const discovery = await sendTabMessage(
@@ -963,16 +821,17 @@ async function runFullCapture({ sourceTabId, options }) {
 
     const targets = dedupeTargets(discovery.targets || []);
 
-    await saveStatus({
+    run = await captureQueue.patch({
       platform: discovery.platform,
       discovery,
       totalTargets: targets.length
     });
 
-    await initializeQueue(targets, options);
-    return activeRun;
+    run = await captureQueue.initialize(targets, options);
+    if (run.status === "running" && run.phase === "capturing") scheduler.scheduleQueueStep(1000);
+    return run;
   } catch (error) {
-    await saveStatus({
+    await captureQueue.patch({
       status: "failed",
       phase: "failed",
       error: error instanceof Error ? error.message : "Full capture failed."
@@ -1040,7 +899,7 @@ async function discoverPlatform(platform, openerTabId, options) {
           options: {
             ...discoverOptions,
             knownTargetsByTitle: knownTargetInfo.knownTargetsByTitle,
-            runId: activeRun?.id || null,
+            runId: captureQueue.snapshot()?.id || null,
             restoreAfterClick: Boolean(borrowedTab)
           }
         },
@@ -1107,7 +966,7 @@ async function discoverPlatform(platform, openerTabId, options) {
 }
 
 async function runAllPlatformsCapture({ sourceTabId, options }) {
-  if (activeRun?.status === "running") {
+  if (captureQueue.snapshot()?.status === "running") {
     throw new Error("A full capture is already running.");
   }
 
@@ -1115,7 +974,7 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     ? options.platforms.filter((platform) => PLATFORM_HISTORY_URLS[platform])
     : [];
 
-  activeRun = {
+  let run = {
     id: crypto.randomUUID(),
     extensionVersion: EXTENSION_VERSION,
     extensionBuildId: EXTENSION_BUILD_ID,
@@ -1136,28 +995,29 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
     platformResults: {},
     stopRequested: false
   };
-  await captureQueue.write(activeRun);
+  run = await captureQueue.start(run);
 
   try {
     const allTargets = [];
-    for (const platform of activeRun.platforms) {
+    for (const platform of run.platforms) {
       if (!PLATFORM_HISTORY_URLS[platform]) continue;
-      const latest = await captureQueue.read();
+      const latest = await captureQueue.load();
+      run = latest || run;
       if (latest?.stopRequested) {
-        await saveStatus({ status: "stopped", phase: "stopped" });
-        return activeRun;
+        run = await captureQueue.patch({ status: "stopped", phase: "stopped" });
+        return run;
       }
 
       try {
-        if (activeRun.mode === "incremental") {
+        if (run.mode === "incremental") {
           await postSyncState(platform, "started").catch(() => undefined);
         }
-        await saveStatus({ phase: `discovering_${platform}` });
+        run = await captureQueue.patch({ phase: `discovering_${platform}` });
         await saveDiscoveryProgress({
           platform,
           phase: "starting",
-          platformIndex: activeRun.platforms.indexOf(platform) + 1,
-          totalPlatforms: activeRun.platforms.length,
+          platformIndex: run.platforms.indexOf(platform) + 1,
+          totalPlatforms: run.platforms.length,
           targetsFound: dedupeTargets(allTargets).length,
           scannedTitles: 0,
           failures: 0
@@ -1166,12 +1026,14 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
         if (!discovery?.ok) throw new Error(discovery?.error || `Discovery failed for ${platform}.`);
         await postDiscovery(discovery);
         allTargets.push(...(discovery.targets || []));
-        await saveStatus({
-          discoveries: [...(activeRun.discoveries || []), discovery],
+        run = captureQueue.snapshot() || run;
+        run = await captureQueue.patch({
+          discoveries: [...(run.discoveries || []), discovery],
           totalTargets: dedupeTargets(allTargets).length
         });
       } catch (error) {
-        if (activeRun.mode === "incremental") {
+        run = captureQueue.snapshot() || run;
+        if (run.mode === "incremental") {
           await postSyncState(platform, "failed", {
             error: error instanceof Error ? error.message : "Discovery failed.",
             backoffUntil: scheduler.retryUntil()
@@ -1181,12 +1043,13 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
           platform,
           phase: "failed",
           targetsFound: dedupeTargets(allTargets).length,
-          failures: (activeRun.failures || []).length + 1,
+          failures: (run.failures || []).length + 1,
           error: error instanceof Error ? error.message : "Discovery failed."
         });
-        await saveStatus({
+        run = captureQueue.snapshot() || run;
+        run = await captureQueue.patch({
           failures: [
-            ...activeRun.failures,
+            ...(run.failures || []),
             {
               platform,
               url: PLATFORM_HISTORY_URLS[platform],
@@ -1199,17 +1062,20 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
 
     const discoveredTargets = dedupeTargets(allTargets);
     const targets = await filterKnownTargets(discoveredTargets, options);
-    await saveStatus({
+    run = captureQueue.snapshot() || run;
+    run = await captureQueue.patch({
       totalTargets: targets.length,
-      skippedDuplicates: (activeRun.skippedDuplicates || 0) + discoveredTargets.length - targets.length
+      skippedDuplicates: (run.skippedDuplicates || 0) + discoveredTargets.length - targets.length
     });
-    await initializeQueue(targets, options);
-    if (activeRun.status === "completed") {
-      await finalizeIncrementalRun(activeRun);
+    run = await captureQueue.initialize(targets, options);
+    if (run.status === "running" && run.phase === "capturing") scheduler.scheduleQueueStep(1000);
+    if (run.status === "completed") {
+      await finalizeIncrementalRun(run);
+      run = captureQueue.snapshot() || run;
     }
-    return activeRun;
+    return run;
   } catch (error) {
-    await saveStatus({
+    await captureQueue.patch({
       status: "failed",
       phase: "failed",
       error: error instanceof Error ? error.message : "All-platform capture failed."
@@ -1263,10 +1129,10 @@ async function ensureBackgroundAutoPilotScheduled(defaultDelayMs) {
 }
 
 async function runBackgroundAutoPilot() {
-  activeRun = (await captureQueue.read()) || activeRun;
+  const run = await captureQueue.load();
   const settings = await getBackgroundSyncSettings();
   if (!settings.enabled) return;
-  if (activeRun?.status === "running") {
+  if (run?.status === "running") {
     await scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS);
     return;
   }
@@ -1368,7 +1234,7 @@ async function scheduleConversationSnapshot(tabId, url) {
 async function captureOpenTabSnapshot(tabId) {
   const settings = await getBackgroundSyncSettings();
   if (!settings.enabled) return;
-  const run = await loadStatus();
+  const run = await captureQueue.load();
   if (run?.status === "running") return;
   const tab = await getTab(tabId);
   if (!tab?.url || !isConversationUrl(tab.url)) return;
@@ -1409,7 +1275,7 @@ async function getConnectedPlatforms() {
 }
 
 async function getRuntimeStatus() {
-  const run = (await loadStatus()) || idleStatus();
+  const run = (await captureQueue.load()) || idleStatus();
   const nextAt = await scheduler.getAutoPilotNextAt();
   return {
     ...run,
@@ -1448,7 +1314,8 @@ chromeApi.onMessage((message, sender, sendResponse) => {
   }
 
   if (message?.type === "AIHR_QWEN_DISCOVERY_PROGRESS") {
-    loadStatus()
+    captureQueue
+      .load()
       .then((run) => {
         if (!run?.id || !message.runId || run.id !== message.runId) {
           return { ignored: true };
@@ -1464,18 +1331,18 @@ chromeApi.onMessage((message, sender, sendResponse) => {
 
   if (message?.type === "AIHR_STOP_FULL_CAPTURE") {
     captureQueue
-      .read()
-      .then((run) => {
-        activeRun = run || activeRun;
-        if (!activeRun) return null;
-        return saveStatus({ stopRequested: true });
-      })
+      .load()
+      .then((run) => (run ? captureQueue.requestStop() : null))
       .then(() => sendResponse({ ok: true }));
     return true;
   }
 
   if (message?.type === "AIHR_RESUME_CAPTURE") {
-    resumeQueue()
+    captureQueue.resume()
+      .then((run) => {
+        scheduler.scheduleQueueStep(1000);
+        return run;
+      })
       .then((run) => sendResponse({ ok: true, run }))
       .catch((error) =>
         sendResponse({
@@ -1487,7 +1354,9 @@ chromeApi.onMessage((message, sender, sendResponse) => {
   }
 
   if (message?.type === "AIHR_CLEAR_RUN_STATUS") {
-    clearRunStatus()
+    scheduler
+      .clearQueue()
+      .then(() => captureQueue.clear())
       .then(() => sendResponse({ ok: true }))
       .catch((error) =>
         sendResponse({
@@ -1512,7 +1381,7 @@ chromeApi.onMessage((message, sender, sendResponse) => {
       }
 
       runFullCapture(message).catch(() => undefined);
-      sendResponse({ ok: true, run: activeRun });
+      sendResponse({ ok: true, run: captureQueue.snapshot() });
     });
     return true;
   }
@@ -1525,7 +1394,7 @@ chromeApi.onMessage((message, sender, sendResponse) => {
       }
 
       runAllPlatformsCapture(message).catch(() => undefined);
-      sendResponse({ ok: true, run: activeRun });
+      sendResponse({ ok: true, run: captureQueue.snapshot() });
     });
     return true;
   }
@@ -1548,7 +1417,7 @@ scheduler.onAlarm((alarm) => {
   }
   if (alarm.name !== scheduler.names.capture) return;
   processQueueStep().catch((error) => {
-    saveStatus({
+    captureQueue.patch({
       status: "failed",
       phase: "failed",
       processing: false,

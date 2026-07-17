@@ -1,11 +1,42 @@
 (() => {
   const TOKEN_KEY = "aihrLocalApiToken";
+  const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+  function normalizeEndpointCandidates(candidates) {
+    if (!Array.isArray(candidates)) {
+      throw new Error("Local API endpoint candidates must be approved loopback origins.");
+    }
+
+    return candidates.map((candidate) => {
+      let parsed;
+      try {
+        parsed = new URL(candidate);
+      } catch {
+        throw new Error("Local API endpoint candidates must be approved loopback origins.");
+      }
+
+      if (
+        parsed.protocol !== "http:" ||
+        !LOOPBACK_HOSTS.has(parsed.hostname) ||
+        parsed.username ||
+        parsed.password ||
+        parsed.pathname !== "/" ||
+        parsed.search ||
+        parsed.hash
+      ) {
+        throw new Error("Local API endpoint candidates must be approved loopback origins.");
+      }
+      return parsed.origin;
+    });
+  }
 
   function createApiClient(options = {}) {
     const fetchImpl = options.fetch || globalThis.fetch;
     const storage = options.storage;
     const getConfigUrl = options.getConfigUrl;
-    const endpointCandidates = options.endpointCandidates || globalThis.AIHR_CONSTANTS?.endpointCandidates || [];
+    const endpointCandidates = normalizeEndpointCandidates(
+      options.endpointCandidates || globalThis.AIHR_CONSTANTS?.endpointCandidates || []
+    );
 
     async function loadToken() {
       if (storage) {
@@ -27,21 +58,39 @@
       }
     }
 
-    const tokenReady = loadToken();
+    let tokenReady = null;
+
+    function getToken() {
+      tokenReady ||= loadToken();
+      return tokenReady;
+    }
 
     async function request(path, requestOptions = {}) {
       if (!fetchImpl) throw new Error("Fetch is unavailable.");
-      const token = await tokenReady;
+      if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) {
+        throw new Error("Local API path must be an origin-relative path.");
+      }
+      if (!endpointCandidates.length) throw new Error("No local API endpoint is configured.");
+
+      const requests = endpointCandidates.map((endpoint) => {
+        const url = new URL(path, `${endpoint}/`);
+        if (url.origin !== endpoint) {
+          throw new Error("Local API path must remain on its configured loopback origin.");
+        }
+        return url.href;
+      });
+      const token = await getToken();
       const headers = token
         ? { ...(requestOptions.headers || {}), "X-AIHR-API-Token": token }
         : requestOptions.headers;
       let lastResponse = null;
       let lastError = null;
 
-      for (const endpoint of endpointCandidates) {
+      for (const url of requests) {
         try {
-          const response = await fetchImpl(new URL(path, `${endpoint}/`).href, {
+          const response = await fetchImpl(url, {
             ...requestOptions,
+            redirect: "error",
             ...(headers ? { headers } : {})
           });
           lastResponse = response;

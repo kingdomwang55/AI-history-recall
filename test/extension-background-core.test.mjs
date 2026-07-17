@@ -4,12 +4,18 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
-function loadCoreModule(file, globals = {}) {
+function loadCoreModules(files, globals = {}) {
   const context = vm.createContext({ URL, ...globals });
   context.globalThis = context;
-  const source = fs.readFileSync(path.join(process.cwd(), "extension", "core", file), "utf8");
-  vm.runInContext(source, context, { filename: file });
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(process.cwd(), "extension", "core", file), "utf8");
+    vm.runInContext(source, context, { filename: file });
+  }
   return context;
+}
+
+function loadCoreModule(file, globals = {}) {
+  return loadCoreModules([file], globals);
 }
 
 function memoryStorage(initial) {
@@ -23,8 +29,47 @@ function memoryStorage(initial) {
     },
     async remove() {
       value = null;
+    },
+    snapshot() {
+      return value;
     }
   };
+}
+
+function productionRun(overrides = {}) {
+  return {
+    id: "run-1",
+    extensionVersion: "0.1.42",
+    extensionBuildId: "deepseek-pinned-groups-20260715",
+    status: "running",
+    phase: "capturing",
+    startedAt: "2026-07-17T00:00:00.000Z",
+    updatedAt: "2026-07-17T00:00:00.000Z",
+    queue: [
+      { platform: "chatgpt", url: "https://chatgpt.com/c/one", title: "One" },
+      { platform: "gemini", url: "https://gemini.google.com/app/two", title: "Two" }
+    ],
+    queuePlatformCounts: { chatgpt: 1, gemini: 1 },
+    nextIndex: 0,
+    totalTargets: 2,
+    processed: 0,
+    importedConversations: 0,
+    importedMessages: 0,
+    skippedDuplicates: 0,
+    failures: [],
+    platformResults: {},
+    processing: false,
+    processingStartedAt: null,
+    leaseUntil: null,
+    currentTarget: null,
+    stopRequested: false,
+    options: { pageDelayMs: 5200, pageJitterMs: 3200 },
+    ...overrides
+  };
+}
+
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 test("API client probes desktop before development endpoint", async () => {
@@ -46,11 +91,180 @@ test("API client probes desktop before development endpoint", async () => {
   assert.deepEqual(calls.map((url) => new URL(url).port), ["32145", "3000"]);
 });
 
-test("queue restores a running target as pending after lease expiry", async () => {
-  const context = loadCoreModule("capture-queue.js");
-  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(
-    memoryStorage({ status: "running", leaseUntil: 1 })
+test("API client rejects off-loopback candidates without token or fetch dispatch", async () => {
+  let tokenReads = 0;
+  let fetchCalls = 0;
+  const context = loadCoreModule("api-client.js");
+
+  assert.throws(
+    () =>
+      context.AIHR_API.createApiClient({
+        endpointCandidates: ["https://example.com"],
+        storage: {
+          async get() {
+            tokenReads += 1;
+            return { aihrLocalApiToken: "secret" };
+          }
+        },
+        fetch: async () => {
+          fetchCalls += 1;
+          return { ok: true };
+        }
+      }),
+    /loopback/i
   );
 
-  assert.equal((await queue.restore(2)).status, "pending");
+  assert.equal(tokenReads, 0);
+  assert.equal(fetchCalls, 0);
+});
+
+test("API client rejects absolute and protocol-relative escape paths before token dispatch", async () => {
+  let tokenReads = 0;
+  const calls = [];
+  const context = loadCoreModule("api-client.js");
+  const api = context.AIHR_API.createApiClient({
+    endpointCandidates: ["http://127.0.0.1:32145"],
+    storage: {
+      async get() {
+        tokenReads += 1;
+        return { aihrLocalApiToken: "secret" };
+      }
+    },
+    fetch: async (url) => {
+      calls.push(url);
+      return { ok: true };
+    }
+  });
+
+  await assert.rejects(api.request("https://example.com/api/health"), /local API path/i);
+  await assert.rejects(api.request("//example.com/api/health"), /local API path/i);
+
+  assert.equal(tokenReads, 0);
+  assert.deepEqual(calls, []);
+});
+
+test("queue restores an expired production capture lease without advancing the target", async () => {
+  const context = loadCoreModule("capture-queue.js");
+  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(memoryStorage(
+    productionRun({
+      processing: true,
+      processingStartedAt: "1970-01-01T00:00:00.001Z",
+      leaseUntil: 1,
+      currentTarget: {
+        platform: "chatgpt",
+        url: "https://chatgpt.com/c/one",
+        title: "One",
+        index: 1,
+        total: 2
+      }
+    })
+  ));
+
+  const restored = await queue.restore(2);
+
+  assert.equal(restored.status, "running");
+  assert.equal(restored.phase, "capturing");
+  assert.equal(restored.processing, false);
+  assert.equal(restored.nextIndex, 0);
+  assert.equal(restored.currentTarget, null);
+});
+
+test("queue owns initialize, resume, claim, success, and failure snapshots", async () => {
+  const context = loadCoreModule("capture-queue.js");
+  const storage = memoryStorage(productionRun({ status: "stopped", phase: "stopped", queue: [] }));
+  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(storage, { now: () => 10_000 });
+  const targets = productionRun().queue;
+
+  let snapshot = await queue.initialize(targets, { pageDelayMs: 5200, pageJitterMs: 3200 });
+  assert.equal(queue.snapshot(), snapshot);
+  assert.deepEqual(plain(snapshot.queuePlatformCounts), { chatgpt: 1, gemini: 1 });
+
+  snapshot = await queue.resume();
+  assert.equal(queue.snapshot(), snapshot);
+  assert.equal(snapshot.status, "running");
+  assert.equal(snapshot.phase, "capturing");
+
+  snapshot = await queue.claim();
+  assert.equal(queue.snapshot(), snapshot);
+  assert.equal(snapshot.processing, true);
+  assert.equal(snapshot.leaseUntil, 190_000);
+  assert.deepEqual(plain(snapshot.currentTarget), {
+    platform: "chatgpt",
+    title: "One",
+    url: "https://chatgpt.com/c/one",
+    index: 1,
+    total: 2
+  });
+
+  snapshot = await queue.succeed({
+    imported: { importedConversations: 1, importedMessages: 3, skippedDuplicates: 2 }
+  });
+  assert.equal(queue.snapshot(), snapshot);
+  assert.equal(snapshot.nextIndex, 1);
+  assert.equal(snapshot.processed, 1);
+  assert.equal(snapshot.importedConversations, 1);
+  assert.equal(snapshot.importedMessages, 3);
+  assert.equal(snapshot.skippedDuplicates, 2);
+  assert.deepEqual(plain(snapshot.platformResults), {
+    chatgpt: { newConversations: 1, newMessages: 3 }
+  });
+
+  await queue.claim();
+  snapshot = await queue.fail(new Error("capture failed"));
+  assert.equal(queue.snapshot(), snapshot);
+  assert.equal(storage.snapshot(), snapshot);
+  assert.equal(snapshot.nextIndex, 2);
+  assert.equal(snapshot.processed, 2);
+  assert.deepEqual(plain(snapshot.failures), [
+    {
+      platform: "gemini",
+      url: "https://gemini.google.com/app/two",
+      title: "Two",
+      error: "capture failed"
+    }
+  ]);
+});
+
+test("ordinary production claim arms the persistent capture alarm for lease expiry", async () => {
+  const context = loadCoreModules(["scheduler.js", "capture-queue.js"]);
+  const alarms = [];
+  const scheduler = context.AIHR_SCHEDULER.createScheduler({
+    alarms: {
+      async create(name, alarmInfo) {
+        alarms.push({ name, alarmInfo });
+      },
+      async clear() {},
+      onAlarm() {}
+    },
+    storage: {
+      async get() {
+        return {};
+      },
+      async set() {},
+      async remove() {}
+    },
+    now: () => 10_000,
+    random: () => 0
+  });
+  const queue = context.AIHR_CAPTURE_QUEUE.createQueue(memoryStorage(productionRun()), {
+    now: () => 10_000,
+    armLease: scheduler.scheduleQueueLease
+  });
+
+  const claimed = await queue.claim();
+
+  assert.equal(claimed.leaseUntil, 190_000);
+  assert.deepEqual(plain(alarms), [
+    { name: "aihr_process_capture_queue", alarmInfo: { when: 190_000 } }
+  ]);
+});
+
+test("background coordinator delegates persisted queue transitions without a mutable run mirror", () => {
+  const background = fs.readFileSync(path.join(process.cwd(), "extension", "background.js"), "utf8");
+
+  assert.equal(/\blet activeRun\b/.test(background), false);
+  assert.equal(/function (?:initializeQueue|resumeQueue)\b/.test(background), false);
+  for (const method of ["initialize", "resume", "claim", "succeed", "fail"]) {
+    assert.match(background, new RegExp(`captureQueue\\.${method}\\b`));
+  }
 });
