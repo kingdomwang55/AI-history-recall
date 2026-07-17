@@ -1,5 +1,6 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type WebSocket from "ws";
 import * as healthRoute from "@/app/api/health/route";
 import * as captureRoute from "@/app/api/extension/capture-page/route";
 import * as discoveryRoute from "@/app/api/extension/discovery-run/route";
@@ -9,9 +10,11 @@ import * as syncRoute from "@/app/api/extension/sync-state/route";
 import * as knowledgeProcessRoute from "@/app/api/knowledge/process/route";
 import * as knowledgeStatusRoute from "@/app/api/knowledge/status/route";
 import * as desktopStatusRoute from "@/app/api/desktop/status/route";
+import { completeOnboardingStep } from "@/services/desktop-settings-service";
 
 const MAX_BODY_BYTES = 256 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
+const EXTENSION_PAIRING_BUILD_ID = "desktop-websocket-20260717";
 
 type RouteHandler = (request: Request) => Response | Promise<Response>;
 type RouteMethods = Record<string, RouteHandler>;
@@ -82,8 +85,46 @@ async function sendWebResponse(nodeResponse: ServerResponse, webResponse: Respon
   nodeResponse.end(body);
 }
 
-export function createDaemonRouter(options: { token: string; onShutdown: () => void }) {
-  return async function daemonRouter(request: IncomingMessage, response: ServerResponse) {
+export interface DaemonMetrics {
+  startedAt: string;
+  schedulerWakeups: number;
+  unconfiguredOutboundRequests: number;
+}
+
+export type DaemonRouter = ReturnType<typeof createDaemonRouter>;
+
+export function createDaemonRouter(options: {
+  token: string;
+  onShutdown: () => void;
+  getMetrics?: () => DaemonMetrics;
+}) {
+  type BridgeCommand = { id: string; message: Record<string, unknown> };
+  const pendingCommands: BridgeCommand[] = [];
+  const commandResults = new Map<string, (result: unknown) => void>();
+  let extensionLastSeenAt = 0;
+  let extensionMeta: Record<string, unknown> = {};
+  let wakeExtensionPoll: (() => void) | null = null;
+  let extensionSocket: WebSocket | null = null;
+
+  async function waitForExtensionCommand() {
+    if (!pendingCommands.length) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          if (wakeExtensionPoll === wake) wakeExtensionPoll = null;
+          resolve();
+        }, 15_000);
+        const wake = () => {
+          clearTimeout(timer);
+          if (wakeExtensionPoll === wake) wakeExtensionPoll = null;
+          resolve();
+        };
+        wakeExtensionPoll = wake;
+      });
+    }
+    return pendingCommands.shift() ?? null;
+  }
+
+  const daemonRouter = async function daemonRouter(request: IncomingMessage, response: ServerResponse) {
     request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error("Request timeout")));
     if (!isLoopbackRemote(request.socket.remoteAddress)) {
       json(response, 403, { error: "Loopback requests only" });
@@ -94,9 +135,110 @@ export function createDaemonRouter(options: { token: string; onShutdown: () => v
       json(response, 200, { ready: true, pid: process.pid });
       return;
     }
+    if (url.pathname === "/api/desktop/pair-extension") {
+      if (request.method !== "POST") {
+        request.resume();
+        json(response, 405, { error: "Method not allowed" });
+        return;
+      }
+      const origin = request.headers.origin ?? "";
+      const buildId = request.headers["x-aihr-extension-build"];
+      if (
+        buildId !== EXTENSION_PAIRING_BUILD_ID ||
+        (origin && !origin.startsWith("chrome-extension://"))
+      ) {
+        request.resume();
+        json(response, 403, { error: "Unrecognized browser extension" });
+        return;
+      }
+      request.resume();
+      completeOnboardingStep("extension");
+      json(response, 200, { ok: true, token: options.token });
+      return;
+    }
     if (!tokenMatches(requestToken(request), options.token)) {
       request.resume();
       json(response, 401, { error: "Missing or invalid local API token" });
+      return;
+    }
+    if (url.pathname === "/api/desktop/extension-status" && request.method === "GET") {
+      json(response, 200, {
+        connected: extensionSocket?.readyState === 1 || Date.now() - extensionLastSeenAt < 25_000,
+        transport: "websocket",
+        transportVersion: 1,
+        lastSeenAt: extensionLastSeenAt ? new Date(extensionLastSeenAt).toISOString() : null,
+        ...extensionMeta
+      });
+      return;
+    }
+    if (url.pathname === "/api/desktop/extension-bridge") {
+      if (request.method === "GET") {
+        extensionLastSeenAt = Date.now();
+        extensionMeta = {
+          version: request.headers["x-aihr-extension-version"],
+          buildId: request.headers["x-aihr-extension-build"]
+        };
+        json(response, 200, { command: await waitForExtensionCommand() });
+        return;
+      }
+      if (request.method !== "POST") {
+        request.resume();
+        json(response, 405, { error: "Method not allowed" });
+        return;
+      }
+      const bridgeBody = await readBody(request);
+      if (bridgeBody.oversized) {
+        json(response, 413, { error: "Request body too large" });
+        return;
+      }
+      let payload: { kind?: string; id?: string; message?: Record<string, unknown>; result?: unknown };
+      try {
+        payload = JSON.parse(bridgeBody.body || "{}");
+      } catch {
+        json(response, 400, { error: "Invalid bridge payload" });
+        return;
+      }
+      if (payload.kind === "result" && payload.id) {
+        extensionLastSeenAt = Date.now();
+        commandResults.get(payload.id)?.(payload.result);
+        commandResults.delete(payload.id);
+        json(response, 200, { ok: true });
+        return;
+      }
+      if (payload.kind !== "command" || !payload.message || typeof payload.message !== "object") {
+        json(response, 400, { error: "Invalid bridge action" });
+        return;
+      }
+      if (Date.now() - extensionLastSeenAt >= 25_000) {
+        json(response, 503, { error: "扩展已配对，但后台连接尚未建立；请刷新扩展后重试。" });
+        return;
+      }
+      const command = { id: randomUUID(), message: payload.message };
+      if (extensionSocket?.readyState === 1) {
+        extensionSocket.send(JSON.stringify({ type: "command", command }));
+      } else {
+        pendingCommands.push(command);
+        wakeExtensionPoll?.();
+      }
+      const result = await new Promise<unknown>((resolve) => {
+        const timer = setTimeout(() => {
+          commandResults.delete(command.id);
+          resolve({ ok: false, error: "扩展执行命令超时" });
+        }, 12_000);
+        commandResults.set(command.id, (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        });
+      });
+      json(response, 200, result);
+      return;
+    }
+    if (url.pathname === "/metrics" && request.method === "GET") {
+      json(response, 200, options.getMetrics?.() ?? {
+        startedAt: new Date().toISOString(),
+        schedulerWakeups: 0,
+        unconfiguredOutboundRequests: 0
+      });
       return;
     }
     if (url.pathname === "/shutdown") {
@@ -141,4 +283,32 @@ export function createDaemonRouter(options: { token: string; onShutdown: () => v
       json(response, 500, { error: error instanceof Error ? error.message : "Daemon request failed" });
     }
   };
+
+  daemonRouter.connectExtensionSocket = (socket: WebSocket, meta: Record<string, unknown>) => {
+    extensionSocket?.close(1000, "Replaced by a newer extension connection");
+    extensionSocket = socket;
+    extensionMeta = meta;
+    extensionLastSeenAt = Date.now();
+    socket.on("message", (raw) => {
+      extensionLastSeenAt = Date.now();
+      try {
+        const payload = JSON.parse(raw.toString()) as { type?: string; id?: string; result?: unknown };
+        if (payload.type === "heartbeat") return;
+        if (payload.type === "result" && payload.id) {
+          commandResults.get(payload.id)?.(payload.result);
+          commandResults.delete(payload.id);
+        }
+      } catch {
+        // Ignore malformed messages from the local extension connection.
+      }
+    });
+    socket.on("close", () => {
+      if (extensionSocket === socket) extensionSocket = null;
+    });
+    while (pendingCommands.length && socket.readyState === 1) {
+      socket.send(JSON.stringify({ type: "command", command: pendingCommands.shift() }));
+    }
+  };
+
+  return daemonRouter;
 }

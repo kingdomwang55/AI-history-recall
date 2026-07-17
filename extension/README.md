@@ -30,13 +30,15 @@ globalThis.AIHR_LOCAL_API_TOKEN = "change-me";
 扩展会把当前页面解析出的消息发送到：
 
 ```text
-http://localhost:3000/api/extension/capture-page
+桌面版：http://127.0.0.1:32145/api/extension/capture-page
+开发版：http://127.0.0.1:3000/api/extension/capture-page
 ```
 
 全量发现阶段的审计证据会发送到：
 
 ```text
-http://localhost:3000/api/extension/discovery-run
+桌面版：http://127.0.0.1:32145/api/extension/discovery-run
+开发版：http://127.0.0.1:3000/api/extension/discovery-run
 ```
 
 ## 当前能力
@@ -76,23 +78,26 @@ http://localhost:3000/api/extension/discovery-run
 
 停止任务不会删除队列。需要继续时点击 `Resume Queue`；需要重新开始新任务时点击 `Clear Status` 后再启动。
 
-修改 `manifest.json`、`background.js`、`content.js` 或 `incremental-sync.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的本地应用页和平台页，无需刷新 `/capture`。Qwen 优先通过当前登录页面的 session list API 低频分页，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用时回退 DOM 滚动。当前 build 应显示为 `extension v0.1.43 / desktop-pairing-20260717`。
+修改 `manifest.json`、`background.js`、`content.js` 或 `incremental-sync.js` 后，需要在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。扩展会自动补注入已经打开的平台页。Qwen 优先通过当前登录页面的 session list API 低频分页，失败时回退 DOM 滚动；ChatGPT 优先尝试同源会话列表 API，接口不可用时回退 DOM 滚动。当前 build 应显示为 `extension v0.1.44 / desktop-websocket-20260717`。
 
 ## 从应用页面启动
 
-扩展也会常驻在本地应用页面：
+浏览器开发模式下，扩展可以注入本地网页；桌面模式下，Tauri WebView 不会加载 Chrome 扩展。桌面 App 与扩展通过固定回环端口通信：
 
 ```text
-http://127.0.0.1/*
+HTTP / WebSocket: 127.0.0.1:32145
+桌面 UI：随机回环端口
 ```
 
-因此你可以在应用的 `/capture` 页面使用 “Chrome 扩展采集 Agent”：
+桌面应用的 `/capture` 页面通过同源 Next API 代理把命令转发到守护进程，再由 WebSocket 交给 Chrome background worker：
 
 1. 生成扩展采集计划。
 2. 点击“下发给扩展执行”。
-3. 应用页面通过 `window.postMessage` 把计划交给 content script。
-4. content script 转发给 background worker。
+3. 应用页面调用同源 `/api/desktop/extension-bridge`。
+4. 守护进程通过本地 WebSocket 把命令交给 background worker。
 5. background worker 在你的已登录 Chrome 中完成发现和采集。
+
+`32145` 只绑定 `127.0.0.1` 并要求桌面配对 token。若扩展已加载但 App 显示离线，先确认该端口由 `aihr-node` 监听；不要将其暴露到局域网或公网。
 
 这个链路用于把应用侧的大模型/规则规划能力接入扩展采集执行能力。
 

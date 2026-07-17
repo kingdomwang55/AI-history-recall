@@ -30,7 +30,8 @@ const safeEvidenceIds = new Set([
   "disk",
   "capture",
   "extension",
-  "model"
+  "model",
+  "resources"
 ]);
 
 export function aggregateHealth(checks: HealthCheck[]): HealthReport {
@@ -216,6 +217,36 @@ function modelCheck(): HealthCheck {
   };
 }
 
+function resourceBudgetCheck(): HealthCheck {
+  const dbPath = process.env.AIHR_DB_PATH ?? path.join(process.cwd(), "data", "ai-history-recall.sqlite");
+  const reportPath = path.join(path.dirname(dbPath), "desktop-resource-report.json");
+  try {
+    const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+      completedAt?: string;
+      metrics?: { cpuAverage?: number; rssMb?: number; dbWakeups?: number };
+      budget?: { ok?: boolean; failures?: string[] };
+    };
+    const metrics = report.metrics ?? {};
+    return {
+      id: "resources",
+      label: "桌面后台资源",
+      status: report.budget?.ok ? "healthy" : "degraded",
+      evidence: report.budget?.ok
+        ? `空闲 CPU ${metrics.cpuAverage ?? "?"}%，峰值 RSS ${metrics.rssMb ?? "?"} MB，数据库唤醒 ${metrics.dbWakeups ?? "?"} 次。`
+        : `最近资源预算未通过：${(report.budget?.failures ?? ["unknown"]).join(", ")}。`,
+      details: { measuredAt: report.completedAt ?? null },
+      action: report.budget?.ok ? undefined : { label: "查看桌面设置", href: "/settings" }
+    };
+  } catch {
+    return {
+      id: "resources",
+      label: "桌面后台资源",
+      status: "disabled",
+      evidence: "尚未运行五分钟空闲资源测量。"
+    };
+  }
+}
+
 export function getHealthReport(): HealthReport {
   let database: HealthCheck[];
   try {
@@ -231,7 +262,7 @@ export function getHealthReport(): HealthReport {
       }
     ];
   }
-  return aggregateHealth([...database, diskCheck(), ...captureChecks(), modelCheck()]);
+  return aggregateHealth([...database, diskCheck(), ...captureChecks(), modelCheck(), resourceBudgetCheck()]);
 }
 
 export function recordHealthSnapshot(report: HealthReport) {

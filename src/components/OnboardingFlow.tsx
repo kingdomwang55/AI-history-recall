@@ -9,7 +9,6 @@ import type { DesktopSettings, OnboardingState, OnboardingStep } from "@/lib/onb
 interface DesktopStatus {
   dataDirectory: string;
   extensionDirectory: string;
-  pairingToken: string;
   onboarding: OnboardingState;
   nextStep: OnboardingStep;
   settings: DesktopSettings;
@@ -62,36 +61,20 @@ export function OnboardingFlow() {
   }
 
   async function pairExtension() {
-    if (!status?.pairingToken) return;
     setBusy(true);
     setNotice("");
-    const requestId = crypto.randomUUID();
     try {
-      await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(() => {
-          window.removeEventListener("message", listener);
-          reject(new Error("未检测到浏览器扩展"));
-        }, 5000);
-        const listener = (event: MessageEvent) => {
-          if (
-            event.origin !== window.location.origin ||
-            event.data?.source !== "aihr-extension" ||
-            event.data?.requestId !== requestId
-          ) return;
-          window.clearTimeout(timer);
-          window.removeEventListener("message", listener);
-          if (event.data.ok === false) reject(new Error(event.data.error || "扩展配对失败"));
-          else resolve();
-        };
-        window.addEventListener("message", listener);
-        window.postMessage(
-          { source: "aihr-web", type: "AIHR_WEB_PAIR_TOKEN", requestId, token: status.pairingToken },
-          window.location.origin
-        );
-      });
-      await complete("extension");
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const current = await desktopRequest();
+        setStatus(current);
+        if (current.onboarding.extension) return;
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      throw new Error("未检测到扩展，请在扩展管理页刷新后重试");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "扩展配对失败");
+    } finally {
       setBusy(false);
     }
   }

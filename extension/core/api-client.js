@@ -112,7 +112,31 @@
       throw lastError || new Error("No local API endpoint is configured.");
     }
 
-    return Object.freeze({ request, setToken });
+    async function pairDesktop(buildId) {
+      if (!fetchImpl || typeof buildId !== "string" || !buildId.trim()) {
+        throw new Error("Desktop pairing is unavailable.");
+      }
+      let lastError = null;
+      for (const endpoint of endpointCandidates) {
+        try {
+          const response = await fetchImpl(`${endpoint}/api/desktop/pair-extension`, {
+            method: "POST",
+            redirect: "error",
+            headers: { "X-AIHR-Extension-Build": buildId.trim() }
+          });
+          if (!response.ok) continue;
+          const payload = await response.json();
+          if (typeof payload?.token !== "string" || !payload.token.trim()) continue;
+          await setToken(payload.token);
+          return { ok: true, endpoint };
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error("Desktop service did not accept extension pairing.");
+    }
+
+    return Object.freeze({ getToken, pairDesktop, request, setToken });
   }
 
   const defaultClient = createApiClient({
@@ -124,6 +148,8 @@
 
   globalThis.AIHR_API = Object.freeze({
     createApiClient,
+    getToken: defaultClient.getToken,
+    pairDesktop: defaultClient.pairDesktop,
     setToken: defaultClient.setToken,
     request: defaultClient.request
   });

@@ -32,7 +32,15 @@ export function DesktopSettings() {
       const response = await request({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-settings", settings }) });
       const status = await response.json() as Status;
       setSettings(status.settings);
-      window.postMessage({ source: "aihr-web", type: "AIHR_WEB_SET_BACKGROUND_SYNC", requestId: crypto.randomUUID(), enabled: status.settings.backgroundCapture }, window.location.origin);
+      await fetch("/api/desktop/extension-bridge", {
+        method: "POST",
+        cache: "no-store",
+        headers: withApiToken({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          kind: "command",
+          message: { type: "AIHR_WEB_SET_BACKGROUND_SYNC", enabled: status.settings.backgroundCapture }
+        })
+      }).catch(() => undefined);
       try {
         const autostart = await import("@tauri-apps/plugin-autostart");
         if (launchAtLogin) await autostart.enable(); else await autostart.disable();

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Settings } from "lucide-react";
 import { CapturePlanner } from "@/components/CapturePlanner";
 
 export default function CapturePage() {
@@ -11,6 +13,7 @@ export default function CapturePage() {
           新对话自动入库，旧对话只追加新消息，全部写入本地 SQLite。
         </p>
         </div>
+        <Link className="desktop-secondary-button" href="/onboarding"><Settings size={15} />设置向导</Link>
       </header>
 
       <CapturePlanner />

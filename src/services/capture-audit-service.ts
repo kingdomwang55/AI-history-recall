@@ -97,7 +97,7 @@ const acceptedQwenDiscoveryBuilds = new Set([
   "incremental-sync-20260714",
   "live-activity-sync-20260714",
   "single-file-worker-20260715",
-  "desktop-pairing-20260717"
+  "desktop-websocket-20260717"
 ]);
 
 function ensureAuditSchema() {

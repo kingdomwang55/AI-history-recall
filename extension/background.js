@@ -14,8 +14,8 @@ const {
   removeWindow,
   waitForTabComplete
 } = chromeApi;
-const EXTENSION_VERSION = "0.1.43";
-const EXTENSION_BUILD_ID = "desktop-pairing-20260717";
+const EXTENSION_VERSION = "0.1.44";
+const EXTENSION_BUILD_ID = "desktop-websocket-20260717";
 const DEFAULT_DELAY_MS = scheduler.delays.capture;
 const DEFAULT_JITTER_MS = scheduler.delays.captureJitter;
 const DISCOVERY_MESSAGE_TIMEOUT_MS = 180000;
@@ -142,6 +142,10 @@ async function ensureContentScriptsInOpenTabs() {
       await injectContentScript(tab.id).catch(() => undefined);
     })
   );
+}
+
+async function ensureDesktopPairing() {
+  return api.pairDesktop(EXTENSION_BUILD_ID);
 }
 
 async function findLoadedQwenTab() {
@@ -1291,6 +1295,91 @@ async function getRuntimeStatus() {
   };
 }
 
+async function executeDesktopCommand(message) {
+  if (message?.type === "AIHR_WEB_GET_STATUS") {
+    return { ok: true, run: await getRuntimeStatus() };
+  }
+  if (message?.type === "AIHR_WEB_SET_BACKGROUND_SYNC") {
+    await setBackgroundSyncEnabled(message.enabled);
+    return { ok: true, run: await getRuntimeStatus() };
+  }
+  if (message?.type === "AIHR_WEB_STOP_CAPTURE") {
+    const run = await captureQueue.load();
+    if (run) await captureQueue.requestStop();
+    return { ok: true, result: { ok: true } };
+  }
+  if (message?.type === "AIHR_WEB_RESUME_CAPTURE") {
+    const run = await captureQueue.resume();
+    scheduler.scheduleQueueStep(1000);
+    return { ok: true, result: { ok: true, run } };
+  }
+  if (message?.type === "AIHR_WEB_CLEAR_STATUS") {
+    await scheduler.clearQueue();
+    await captureQueue.clear();
+    return { ok: true, result: { ok: true } };
+  }
+  if (message?.type === "AIHR_WEB_START_CAPTURE") {
+    if (await hasRunningTask()) return { ok: false, error: "A full capture is already running." };
+    runAllPlatformsCapture(message).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { ok: true, result: { ok: true, run: captureQueue.snapshot() } };
+  }
+  return { ok: false, error: "Unsupported desktop extension command." };
+}
+
+let desktopBridgeSocket = null;
+
+async function runDesktopBridge() {
+  if (
+    desktopBridgeSocket &&
+    (desktopBridgeSocket.readyState === WebSocket.CONNECTING || desktopBridgeSocket.readyState === WebSocket.OPEN)
+  ) return;
+  const token = await api.getToken();
+  if (!token) throw new Error("Desktop pairing token is unavailable.");
+  const capability = await api.request("/api/desktop/extension-status", { cache: "no-store" });
+  if (!capability.ok || (await capability.json()).transport !== "websocket") {
+    setTimeout(() => runDesktopBridge().catch(() => undefined), 5000);
+    return;
+  }
+  const socketUrl = new URL("ws://127.0.0.1:32145/api/desktop/extension-socket");
+  socketUrl.searchParams.set("token", token);
+  socketUrl.searchParams.set("version", EXTENSION_VERSION);
+  socketUrl.searchParams.set("buildId", EXTENSION_BUILD_ID);
+  const socket = new WebSocket(socketUrl.href);
+  desktopBridgeSocket = socket;
+  let heartbeat = null;
+  socket.addEventListener("open", () => {
+    socket.send(JSON.stringify({ type: "heartbeat" }));
+    heartbeat = setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "heartbeat" }));
+    }, 20_000);
+  });
+  socket.addEventListener("message", async (event) => {
+    let payload;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (payload?.type !== "command" || !payload.command?.id) return;
+    let result;
+    try {
+      result = await executeDesktopCommand(payload.command.message);
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : "扩展命令执行失败" };
+    }
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "result", id: payload.command.id, result }));
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (desktopBridgeSocket === socket) desktopBridgeSocket = null;
+    if (heartbeat) clearInterval(heartbeat);
+    setTimeout(() => runDesktopBridge().catch(() => undefined), 5000);
+  });
+  socket.addEventListener("error", () => socket.close());
+}
+
 chromeApi.onMessage((message, sender, sendResponse) => {
   if (message?.type === "AIHR_CONVERSATION_ACTIVITY") {
     const tabId = sender.tab?.id;
@@ -1428,6 +1517,12 @@ scheduler.onAlarm((alarm) => {
       .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
     return;
   }
+  if (alarm.name === scheduler.names.desktopBridge) {
+    ensureDesktopPairing()
+      .then(() => runDesktopBridge())
+      .catch(() => undefined);
+    return;
+  }
   if (alarm.name !== scheduler.names.capture) return;
   processQueueStep().catch((error) => {
     captureQueue.patch({
@@ -1452,12 +1547,16 @@ chromeApi.onTabRemoved((tabId) => {
 });
 
 chromeApi.onStartup(() => {
+  scheduler.ensureDesktopBridgeAlarm();
+  ensureDesktopPairing().catch(() => undefined);
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
   ensureBackgroundAutoPilotScheduled(scheduler.startupDelay()).catch(() => undefined);
 });
 
 chromeApi.onInstalled(() => {
+  scheduler.ensureDesktopBridgeAlarm();
+  ensureDesktopPairing().catch(() => undefined);
   ensureContentScriptsInOpenTabs().catch(() => undefined);
   restoreQueueAlarm().catch(() => undefined);
   ensureBackgroundAutoPilotScheduled(scheduler.startupDelay()).catch(() => undefined);
@@ -1476,3 +1575,7 @@ recoverInterruptedDiscovery()
   .catch(() => scheduleBackgroundAutoPilot(AUTO_PILOT_RETRY_MS).catch(() => undefined));
 
 ensureContentScriptsInOpenTabs().catch(() => undefined);
+scheduler.ensureDesktopBridgeAlarm();
+ensureDesktopPairing()
+  .then(() => runDesktopBridge())
+  .catch(() => undefined);

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { register } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import WebSocket from "ws";
 
 register("./path-alias-loader.mjs", import.meta.url);
 
@@ -58,7 +59,94 @@ test("daemon exposes unauthenticated readiness but requires pairing token for wr
     assert.equal(ready.status, 200);
     assert.equal((await ready.json()).ready, true);
     assert.equal(rejected.status, 401);
+    const metrics = await request(daemon, "/metrics", {
+      headers: { "X-AIHR-API-Token": "pairing-secret" }
+    });
+    assert.equal(metrics.status, 200);
+    assert.equal((await metrics.json()).schedulerWakeups, 0);
   } finally {
+    await daemon.close();
+  }
+});
+
+test("desktop extension pairs directly with the loopback daemon", async () => {
+  const daemon = await startDaemon(daemonOptions());
+  try {
+    const rejected = await request(daemon, "/api/desktop/pair-extension", {
+      method: "POST",
+      headers: { "X-AIHR-Extension-Build": "unknown" }
+    });
+    const paired = await request(daemon, "/api/desktop/pair-extension", {
+      method: "POST",
+      headers: { "X-AIHR-Extension-Build": "desktop-websocket-20260717" }
+    });
+
+    assert.equal(rejected.status, 403);
+    assert.equal(paired.status, 200);
+    assert.equal((await paired.json()).token, "pairing-secret");
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("desktop bridge relays commands between the app and extension", async () => {
+  const daemon = await startDaemon(daemonOptions());
+  const headers = { "X-AIHR-API-Token": "pairing-secret" };
+  try {
+    const poll = request(daemon, "/api/desktop/extension-bridge", {
+      headers: { ...headers, "X-AIHR-Extension-Version": "0.1.44", "X-AIHR-Extension-Build": "desktop-websocket-20260717" }
+    }).then((response) => response.json());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const appCommand = request(daemon, "/api/desktop/extension-bridge", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ kind: "command", message: { type: "AIHR_WEB_GET_STATUS" } })
+    }).then(async (response) => ({ status: response.status, body: await response.json() }));
+    const command = (await poll).command;
+    assert.equal(command.message.type, "AIHR_WEB_GET_STATUS");
+    await request(daemon, "/api/desktop/extension-bridge", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ kind: "result", id: command.id, result: { ok: true, run: { status: "idle" } } })
+    });
+    const result = await appCommand;
+    assert.equal(result.status, 200);
+    assert.equal(result.body.run.status, "idle");
+  } finally {
+    await daemon.close();
+  }
+});
+
+test("desktop WebSocket keeps the extension online and relays commands", async () => {
+  const daemon = await startDaemon(daemonOptions());
+  const socket = new WebSocket(
+    `${daemon.url.replace("http:", "ws:")}/api/desktop/extension-socket?token=pairing-secret&version=0.1.44&buildId=desktop-websocket-20260717`
+  );
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once("open", resolve);
+      socket.once("error", reject);
+    });
+    socket.on("message", (raw) => {
+      const payload = JSON.parse(raw.toString());
+      if (payload.type === "command") {
+        socket.send(JSON.stringify({ type: "result", id: payload.command.id, result: { ok: true, run: { status: "idle" } } }));
+      }
+    });
+    const status = await request(daemon, "/api/desktop/extension-status", {
+      headers: { "X-AIHR-API-Token": "pairing-secret" }
+    });
+    const command = await request(daemon, "/api/desktop/extension-bridge", {
+      method: "POST",
+      headers: { "X-AIHR-API-Token": "pairing-secret", "content-type": "application/json" },
+      body: JSON.stringify({ kind: "command", message: { type: "AIHR_WEB_GET_STATUS" } })
+    });
+    const statusBody = await status.json();
+    assert.equal(statusBody.connected, true);
+    assert.equal(statusBody.transport, "websocket");
+    assert.equal((await command.json()).run.status, "idle");
+  } finally {
+    socket.close();
     await daemon.close();
   }
 });

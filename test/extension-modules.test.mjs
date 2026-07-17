@@ -75,7 +75,7 @@ function adapter(overrides = {}) {
 test("constants publish the versioned extension contract", () => {
   const context = loadExtensionScripts(["extension/core/constants.js"]);
 
-  assert.equal(context.AIHR_CONSTANTS.extensionVersion, "0.1.43");
+  assert.equal(context.AIHR_CONSTANTS.extensionVersion, "0.1.44");
   assert.equal(context.AIHR_CONSTANTS.protocolVersion, 1);
   assert.deepEqual([...context.AIHR_CONSTANTS.endpointCandidates], [
     "http://127.0.0.1:32145",

@@ -351,7 +351,7 @@ for (const fixture of platformFixtures) {
 
 test("content script delegates platform behavior without platform implementation details", () => {
   const source = fs.readFileSync(path.join(process.cwd(), "extension", "content.js"), "utf8");
-  const implementationSource = source.replaceAll("desktop-pairing-20260717", "");
+  const implementationSource = source.replaceAll("desktop-websocket-20260717", "");
 
   assert.match(source, /AIHR_PLATFORMS\.forUrl\(location\.href\)/);
   assert.match(source, /adapter\.extract\(/);

@@ -22,7 +22,7 @@ const statusCopy: Record<HealthStatus, { label: string; className: string }> = {
 };
 
 const checkGroups = [
-  { title: "核心服务", ids: ["database", "schema", "disk"] },
+  { title: "核心服务", ids: ["database", "schema", "disk", "resources"] },
   { title: "检索与知识", ids: ["fts", "semantic", "model"] },
   { title: "采集链路", ids: ["capture", "extension"] }
 ];

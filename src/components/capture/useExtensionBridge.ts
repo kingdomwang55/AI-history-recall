@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { withApiToken } from "@/lib/client-api";
 import type { ExtensionRunStatus } from "@/components/capture/capture-types";
 
-const expectedExtensionVersion = "0.1.43";
-const expectedExtensionBuildId = "desktop-pairing-20260717";
+const expectedExtensionVersion = "0.1.44";
+const expectedExtensionBuildId = "desktop-websocket-20260717";
 
 export function extensionNeedsUpdate(version?: string, buildId?: string) {
   if (!version) return false;
@@ -32,8 +33,25 @@ export function useExtensionBridge({
   const [extensionCheckedAt, setExtensionCheckedAt] = useState<string | null>(null);
   const [extensionBridgeError, setExtensionBridgeError] = useState<string | null>(null);
   const [extensionRun, setExtensionRun] = useState<ExtensionRunStatus | null>(null);
+  const desktopBridgeRef = useRef(false);
 
   const requestExtension = useCallback(<T,>(message: Record<string, unknown>, timeoutMs = 5000): Promise<T> => {
+    if (desktopBridgeRef.current) {
+      return fetch("/api/desktop/extension-bridge", {
+        method: "POST",
+        cache: "no-store",
+        headers: withApiToken({ "content-type": "application/json" }),
+        body: JSON.stringify({ kind: "command", message }),
+        signal: AbortSignal.timeout(Math.max(timeoutMs, 13_000))
+      }).then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload?.ok === false) throw new Error(payload?.error || "扩展执行失败");
+        setExtensionReady(true);
+        setExtensionBridgeError(null);
+        setExtensionCheckedAt(new Date().toISOString());
+        return payload as T;
+      });
+    }
     const requestId = crypto.randomUUID();
 
     return new Promise((resolve, reject) => {
@@ -74,6 +92,20 @@ export function useExtensionBridge({
   }, []);
 
   useEffect(() => {
+    let disposed = false;
+    fetch("/api/desktop/extension-status", { cache: "no-store", headers: withApiToken() })
+      .then(async (response) => {
+        if (!response.ok || disposed) return;
+        const desktop = await response.json();
+        desktopBridgeRef.current = true;
+        setExtensionReady(desktop.connected === true);
+        setExtensionMeta({ version: desktop.version, buildId: desktop.buildId });
+        setExtensionCheckedAt(new Date().toISOString());
+        setExtensionBridgeError(
+          desktop.connected ? null : "扩展已配对，但后台连接尚未建立；请刷新扩展后重试。"
+        );
+      })
+      .catch(() => undefined);
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.data?.source !== "aihr-extension") return;
       if (event.data.type === "AIHR_EXTENSION_READY") {
@@ -99,7 +131,10 @@ export function useExtensionBridge({
       { source: "aihr-web", type: "AIHR_WEB_GET_STATUS", requestId: crypto.randomUUID() },
       window.location.origin
     );
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      disposed = true;
+      window.removeEventListener("message", onMessage);
+    };
   }, []);
 
   useEffect(() => {

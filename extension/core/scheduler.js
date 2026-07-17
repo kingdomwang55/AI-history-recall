@@ -2,6 +2,7 @@
   const NAMES = Object.freeze({
     capture: "aihr_process_capture_queue",
     autoPilot: "aihr_background_autopilot",
+    desktopBridge: "aihr_desktop_bridge",
     snapshotPrefix: "aihr_snapshot_"
   });
   const DELAYS = Object.freeze({
@@ -68,6 +69,10 @@
       return alarms.create(`${NAMES.snapshotPrefix}${tabId}`, { when });
     }
 
+    function ensureDesktopBridgeAlarm() {
+      return alarms.create(NAMES.desktopBridge, { periodInMinutes: 1 });
+    }
+
     function clearSnapshot(tabId) {
       return alarms.clear(`${NAMES.snapshotPrefix}${tabId}`);
     }
@@ -94,6 +99,7 @@
       setAutoPilotNextAt,
       restoreAutoPilot,
       clearAutoPilot,
+      ensureDesktopBridgeAlarm,
       removeAutoPilotNextAt,
       scheduleSnapshot,
       clearSnapshot,

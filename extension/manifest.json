@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI History Recall Capture",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "description": "Capture the current logged-in AI conversation into local AI History Recall.",
   "permissions": ["activeTab", "storage", "tabs", "windows", "alarms", "scripting"],
   "host_permissions": [

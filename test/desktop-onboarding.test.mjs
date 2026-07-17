@@ -50,20 +50,45 @@ test("desktop settings keep models disabled and close-to-tray enabled by default
   });
 });
 
-test("desktop routes and extension bridge expose pairing without fixed UI port", () => {
+test("desktop extension pairs through the fixed loopback daemon instead of the WebView", () => {
   const manifest = JSON.parse(
     fs.readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8")
   );
-  const content = fs.readFileSync(new URL("../extension/content.js", import.meta.url), "utf8");
+  const background = fs.readFileSync(new URL("../extension/background.js", import.meta.url), "utf8");
   const route = fs.readFileSync(
     new URL("../src/app/api/desktop/status/route.ts", import.meta.url),
     "utf8"
   );
+  const onboarding = fs.readFileSync(
+    new URL("../src/components/OnboardingFlow.tsx", import.meta.url),
+    "utf8"
+  );
 
   assert.ok(manifest.content_scripts[0].matches.includes("http://127.0.0.1/*"));
-  assert.match(content, /AIHR_WEB_PAIR_TOKEN/);
+  assert.match(background, /pairDesktop\(EXTENSION_BUILD_ID\)/);
   assert.match(route, /requireApiToken/);
-  assert.match(route, /pairingToken/);
+  assert.doesNotMatch(route, /pairingToken/);
+  assert.doesNotMatch(onboarding, /window\.postMessage/);
+});
+
+test("desktop UI exposes same-origin proxies for extension status and commands", () => {
+  const statusRoute = fs.readFileSync(
+    new URL("../src/app/api/desktop/extension-status/route.ts", import.meta.url),
+    "utf8"
+  );
+  const bridgeRoute = fs.readFileSync(
+    new URL("../src/app/api/desktop/extension-bridge/route.ts", import.meta.url),
+    "utf8"
+  );
+  const proxy = fs.readFileSync(
+    new URL("../src/lib/desktop-daemon-proxy.ts", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(statusRoute, /proxyDesktopDaemon/);
+  assert.match(bridgeRoute, /proxyDesktopDaemon/);
+  assert.match(proxy, /127\.0\.0\.1/);
+  assert.match(proxy, /requireApiToken/);
 });
 
 test("desktop status persists onboarding and round-trips a validated backup", async () => {

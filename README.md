@@ -49,6 +49,23 @@ AIHR_DB_PATH=/your/path/ai-history-recall.sqlite npm run dev
 
 `npm run dev` 和 `npm start` 默认只绑定 `127.0.0.1`，不会监听局域网地址。
 
+### 桌面端端口
+
+桌面版使用两个仅绑定本机回环地址的端口：
+
+- `127.0.0.1:32145` 是固定的桌面守护进程端口。Chrome 扩展配对、WebSocket 在线状态、采集命令和数据写入都通过此端口完成。
+- 桌面 UI 每次启动会申请一个随机空闲端口，只供 Tauri WebView 使用。该端口无需配置，也不应被脚本或扩展依赖。
+- `127.0.0.1:3000` 仅是 `npm run dev` 浏览器开发模式的回退端口，不是桌面版后台端口。
+
+所有端口都只监听 `127.0.0.1`，并使用桌面应用生成的本地 token 鉴权。若桌面版无法启动或扩展无法连接，先检查固定端口是否被占用：
+
+```bash
+lsof -nP -iTCP:32145 -sTCP:LISTEN  # macOS
+netstat -ano | findstr :32145      # Windows
+```
+
+正常情况下监听进程应为随桌面应用打包的 `aihr-node`。不要把 `32145` 转发到局域网或公网。
+
 如果要启用本地 API shared token，只需要在服务端设置 `AIHR_API_TOKEN`：
 
 ```bash
@@ -220,7 +237,7 @@ extension/README.md
 4. 对新增 URL 创建会话，对已有 URL 合并新消息。
 5. 更新 SQLite、FTS5 和每个平台最近同步状态。
 
-页面顶部集中显示四个平台是否已有页面打开、最近同步时间、最近新增对话/消息数和错误。Qwen 优先使用页面自身的 session list 接口，ChatGPT 优先使用登录页面的同源会话列表接口，接口不可用时回退低频侧栏发现。DeepSeek 的置顶分组会单独去重，不占“连续已知”阈值，避免遮住后面的“昨天”和“7 天内”新记录。修改未打包扩展代码后，只需在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入；扩展会自动补注入已打开页面，无需刷新 `/capture`。当前版本应显示 `extension v0.1.42 / deepseek-pinned-groups-20260715`。
+页面顶部集中显示四个平台是否已有页面打开、最近同步时间、最近新增对话/消息数和错误。Qwen 优先使用页面自身的 session list 接口，ChatGPT 优先使用登录页面的同源会话列表接口，接口不可用时回退低频侧栏发现。DeepSeek 的置顶分组会单独去重，不占“连续已知”阈值，避免遮住后面的“昨天”和“7 天内”新记录。桌面版通过 `127.0.0.1:32145` 的本地 WebSocket 在 Tauri App 与 Chrome 扩展之间转发命令，不依赖扩展向 Tauri WebView 注入脚本。修改未打包扩展代码后，在 `chrome://extensions` 对 AI History Recall Capture 点击一次重新载入。当前版本应显示 `extension v0.1.44 / desktop-websocket-20260717`。
 
 审计区会显示每个平台的导入数、索引数、最近 discovery stop reason、扫描标题数、失败数和“耗尽证据”。当 `readyForReview` 为真时，表示本地数据、索引、队列和最近全量发现证据都已就绪，可以再人工抽查平台侧历史列表；如果最近发现是 `targets=0/scanned=0`，会被标记为弱证据，不会直接通过验收。
 

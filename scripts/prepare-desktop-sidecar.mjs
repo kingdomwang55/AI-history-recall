@@ -82,6 +82,9 @@ export async function prepareDesktopResources(options = {}) {
     platform: "node",
     target: "node24",
     external: ["better-sqlite3"],
+    banner: {
+      js: "import { createRequire as __aihrCreateRequire } from 'node:module'; const require = __aihrCreateRequire(import.meta.url);"
+    },
     sourcemap: false
   });
 

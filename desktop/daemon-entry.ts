@@ -1,4 +1,5 @@
 import http from "node:http";
+import { WebSocketServer } from "ws";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDaemonRouter } from "./daemon-router.ts";
@@ -22,7 +23,13 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
   applyDesktopSettingsEnvironment();
   let closing: Promise<void> | null = null;
   let scheduler: ReturnType<typeof setInterval> | null = null;
+  const metrics = {
+    startedAt: new Date().toISOString(),
+    schedulerWakeups: 0,
+    unconfiguredOutboundRequests: 0
+  };
   const server = http.createServer();
+  const webSockets = new WebSocketServer({ noServer: true });
 
   const close = () => {
     if (closing) return closing;
@@ -37,7 +44,28 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
     });
     return closing;
   };
-  server.on("request", createDaemonRouter({ token: config.token, onShutdown: () => void close() }));
+  const router = createDaemonRouter({
+    token: config.token,
+    onShutdown: () => void close(),
+    getMetrics: () => ({ ...metrics })
+  });
+  server.on("request", router);
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url ?? "/", `http://${config.host}`);
+    if (
+      url.pathname !== "/api/desktop/extension-socket" ||
+      url.searchParams.get("token") !== config.token
+    ) {
+      socket.destroy();
+      return;
+    }
+    webSockets.handleUpgrade(request, socket, head, (webSocket) => {
+      router.connectExtensionSocket(webSocket, {
+        version: url.searchParams.get("version") || undefined,
+        buildId: url.searchParams.get("buildId") || undefined
+      });
+    });
+  });
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
     server.once("error", onError);
@@ -49,7 +77,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<RunningD
   if (options.scheduler !== false) {
     scheduler = setInterval(() => {
       const settings = applyDesktopSettingsEnvironment(getDesktopSettings());
-      if (settings.knowledgeProcessing) processKnowledgeBatch({ limit: 2 }).catch(() => undefined);
+      if (settings.knowledgeProcessing) {
+        metrics.schedulerWakeups += 1;
+        processKnowledgeBatch({ limit: 2 }).catch(() => undefined);
+      }
     }, 60_000);
     scheduler.unref();
   }

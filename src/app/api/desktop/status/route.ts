@@ -23,7 +23,6 @@ function statusPayload() {
     extensionDirectory: process.env.AIHR_DESKTOP_RESOURCE_DIR
       ? path.join(process.env.AIHR_DESKTOP_RESOURCE_DIR, "resources", "extension")
       : path.join(process.cwd(), "extension"),
-    pairingToken: process.env.AIHR_API_TOKEN || "",
     onboarding,
     nextStep: nextOnboardingStep(onboarding),
     settings: getDesktopSettings(),

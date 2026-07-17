@@ -1,6 +1,6 @@
 (() => {
-  const EXTENSION_VERSION = "0.1.43";
-  const EXTENSION_BUILD_ID = "desktop-pairing-20260717";
+  const EXTENSION_VERSION = "0.1.44";
+  const EXTENSION_BUILD_ID = "desktop-websocket-20260717";
 
   function currentAdapter() {
     if (!globalThis.AIHR_PLATFORMS) return null;

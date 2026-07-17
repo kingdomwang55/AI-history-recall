@@ -39,8 +39,8 @@ function memoryStorage(initial) {
 function productionRun(overrides = {}) {
   return {
     id: "run-1",
-    extensionVersion: "0.1.43",
-    extensionBuildId: "desktop-pairing-20260717",
+    extensionVersion: "0.1.44",
+    extensionBuildId: "desktop-websocket-20260717",
     status: "running",
     phase: "capturing",
     startedAt: "2026-07-17T00:00:00.000Z",
@@ -90,6 +90,26 @@ test("API client probes desktop before development endpoint", async () => {
   await api.request("/api/health");
 
   assert.deepEqual(calls.map((url) => new URL(url).port), ["32145", "3000"]);
+});
+
+test("API client pairs with the desktop daemon and persists its token", async () => {
+  const storage = memoryStorage({});
+  const calls = [];
+  const context = loadCoreModule("api-client.js");
+  const api = context.AIHR_API.createApiClient({
+    endpointCandidates: ["http://127.0.0.1:32145"],
+    storage,
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, json: async () => ({ token: "desktop-secret" }) };
+    }
+  });
+
+  const paired = await api.pairDesktop("desktop-websocket-20260717");
+
+  assert.equal(paired.ok, true);
+  assert.equal(storage.snapshot().aihrLocalApiToken, "desktop-secret");
+  assert.equal(calls[0].options.headers["X-AIHR-Extension-Build"], "desktop-websocket-20260717");
 });
 
 test("API client rejects off-loopback candidates without token or fetch dispatch", async () => {

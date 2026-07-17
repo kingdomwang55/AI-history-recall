@@ -102,6 +102,19 @@ test("health workspace exposes evidence and repair actions", async () => {
   assert.match(page, /重新检查/);
 });
 
+test("desktop pages expose the setup wizard and use the daemon extension bridge", async () => {
+  const capture = await source("src/app/capture/page.tsx");
+  const settings = await source("src/app/settings/page.tsx");
+  const desktopSettings = await source("src/components/DesktopSettings.tsx");
+  const bridge = await source("src/components/capture/useExtensionBridge.ts");
+
+  assert.match(capture, /href="\/onboarding"/);
+  assert.match(settings, /href="\/onboarding"/);
+  assert.match(desktopSettings, /\/api\/desktop\/extension-bridge/);
+  assert.match(bridge, /\/api\/desktop\/extension-status/);
+  assert.match(bridge, /\/api\/desktop\/extension-bridge/);
+});
+
 test("extension popup probes local health and current adapter diagnostics", async () => {
   const html = await source("extension/popup.html");
   const popup = await source("extension/popup.js");

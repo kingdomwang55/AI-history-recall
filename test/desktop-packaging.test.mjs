@@ -40,6 +40,8 @@ test("packaging script excludes development data and carries daemon native depen
 
   assert.match(script, /rmSync\(path\.join\(uiDir, "data"\)/);
   assert.match(script, /\["better-sqlite3", "bindings", "file-uri-to-path"\]/);
+  assert.match(script, /createRequire as __aihrCreateRequire/);
+  assert.match(script, /const require = __aihrCreateRequire/);
 });
 
 test("UI launcher reserves loopback only and shares desktop credentials", async () => {
