@@ -166,3 +166,59 @@ CREATE TABLE IF NOT EXISTS health_check_runs (
 
 CREATE INDEX IF NOT EXISTS idx_health_check_runs_generated
 ON health_check_runs(generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_jobs (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  task_type TEXT NOT NULL CHECK (task_type IN ('process')),
+  fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  available_at TEXT NOT NULL,
+  lease_until TEXT,
+  last_error TEXT,
+  completion_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(conversation_id, task_type, fingerprint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_jobs_claim
+ON knowledge_jobs(status, available_at, lease_until, created_at);
+
+CREATE TABLE IF NOT EXISTS conversation_insights (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  fingerprint TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  key_points_json TEXT NOT NULL DEFAULT '[]',
+  generator TEXT NOT NULL CHECK (generator IN ('rule', 'model')),
+  generator_version TEXT NOT NULL,
+  generated_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auto_conversation_tags (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  generator TEXT NOT NULL CHECK (generator IN ('rule', 'model')),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (conversation_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_conversation_tags_tag
+ON auto_conversation_tags(tag);
+
+CREATE TABLE IF NOT EXISTS conversation_similarities (
+  left_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  right_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  score REAL NOT NULL CHECK (score >= 0 AND score <= 1),
+  fingerprint TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (left_conversation_id, right_conversation_id),
+  CHECK (left_conversation_id < right_conversation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_similarities_right
+ON conversation_similarities(right_conversation_id, score DESC);
