@@ -10,6 +10,7 @@ register("./path-alias-loader.mjs", import.meta.url);
 const { importParsedConversations } = await import("../src/services/import-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
 const { getKnowledgeQueueStatus } = await import("../src/services/knowledge-queue-service.ts");
+const { getHealthReport } = await import("../src/services/health-check-service.ts");
 
 function closeDb() {
   if (globalThis.aiHistoryRecallDb) {
@@ -245,4 +246,68 @@ test("merges from an existing tail anchor when a later snapshot gains leading co
     .all()
     .map((row) => row.content);
   assert.deepEqual(contents, ["Original question", "Original answer", "New follow-up"]);
+});
+
+test("records merge conflicts instead of appending divergent same-url snapshots", () => {
+  useTempDb();
+  const sourceUrl = "https://chatgpt.com/c/conflict-aware-merge";
+
+  const first = importParsedConversations(
+    [
+      {
+        title: "Conflict aware merge",
+        sourcePlatform: "chatgpt",
+        sourceUrl,
+        messages: [
+          { role: "user", content: "Keep the original question" },
+          { role: "assistant", content: "Keep the original answer" },
+          { role: "user", content: "Stable tail" }
+        ]
+      }
+    ],
+    "first.json",
+    "chatgpt"
+  );
+
+  const second = importParsedConversations(
+    [
+      {
+        title: "Conflict aware merge",
+        sourcePlatform: "chatgpt",
+        sourceUrl,
+        messages: [
+          { role: "user", content: "Keep the original question" },
+          { role: "assistant", content: "A changed middle answer from another snapshot" },
+          { role: "user", content: "Stable tail" },
+          { role: "assistant", content: "Suspicious tail should not be appended" }
+        ]
+      }
+    ],
+    "second.json",
+    "chatgpt"
+  );
+
+  assert.equal(second.importedMessages, 0);
+  assert.equal(second.updatedConversations, 0);
+  assert.equal(second.skippedDuplicates, 0);
+  assert.equal(second.mergeConflicts, 1);
+
+  const db = getDb();
+  const messages = db
+    .prepare("SELECT content FROM messages WHERE conversation_id = ? ORDER BY order_index")
+    .all(first.conversationIds[0])
+    .map((row) => row.content);
+  assert.deepEqual(messages, ["Keep the original question", "Keep the original answer", "Stable tail"]);
+
+  const conflict = db.prepare("SELECT * FROM import_merge_conflicts").get();
+  assert.equal(conflict.conversation_id, first.conversationIds[0]);
+  assert.equal(conflict.reason, "divergent_messages");
+  assert.equal(conflict.existing_message_count, 3);
+  assert.equal(conflict.incoming_message_count, 4);
+  assert.equal(conflict.first_conflict_index, 1);
+  assert.match(conflict.incoming_preview, /changed middle answer/);
+
+  const mergeCheck = getHealthReport().checks.find((check) => check.id === "merge");
+  assert.equal(mergeCheck.status, "degraded");
+  assert.match(mergeCheck.evidence, /1 个同源对话合并冲突/);
 });

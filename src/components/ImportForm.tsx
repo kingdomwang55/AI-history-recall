@@ -10,6 +10,7 @@ interface ImportResponse {
   total: {
     conversations: number;
     messages: number;
+    mergeConflicts: number;
   };
 }
 
@@ -111,7 +112,7 @@ export function ImportForm() {
           </div>
         ) : (
           <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="border-l-2 border-[var(--accent)] bg-[var(--surface-subtle)] p-3">
                 <div className="text-2xl font-semibold">{response.total.conversations}</div>
                 <div className="text-xs text-[var(--muted)]">conversations</div>
@@ -119,6 +120,10 @@ export function ImportForm() {
               <div className="border-l-2 border-[var(--accent)] bg-[var(--surface-subtle)] p-3">
                 <div className="text-2xl font-semibold">{response.total.messages}</div>
                 <div className="text-xs text-[var(--muted)]">messages</div>
+              </div>
+              <div className="border-l-2 border-[var(--warning)] bg-[var(--surface-subtle)] p-3">
+                <div className="text-2xl font-semibold">{response.total.mergeConflicts}</div>
+                <div className="text-xs text-[var(--muted)]">conflicts</div>
               </div>
             </div>
 
@@ -152,6 +157,7 @@ export function ImportForm() {
                       </div>
                       <div className="mt-2 text-xs">
                         {result.importedConversations} 条对话，{result.importedMessages} 条消息
+                        {result.mergeConflicts ? `，${result.mergeConflicts} 个合并冲突已保留` : ""}
                       </div>
                       {result.errors.length ? (
                         <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-[var(--danger)]">

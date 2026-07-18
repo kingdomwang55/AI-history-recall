@@ -51,6 +51,7 @@ export async function POST(request: Request) {
         adapter: null,
         importedConversations: 0,
         importedMessages: 0,
+        mergeConflicts: 0,
         conversationIds: [],
         errors: [`单个文件不能超过 10 MB：${file.name}`]
       });
@@ -74,7 +75,8 @@ export async function POST(request: Request) {
         (sum, item) => sum + item.importedConversations,
         0
       ),
-      messages: results.reduce((sum, item) => sum + item.importedMessages, 0)
+      messages: results.reduce((sum, item) => sum + item.importedMessages, 0),
+      mergeConflicts: results.reduce((sum, item) => sum + (item.mergeConflicts ?? 0), 0)
     }
   });
 }

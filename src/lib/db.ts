@@ -116,6 +116,27 @@ function migrateDatabase(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_capture_targets_platform
     ON capture_targets(platform);
 
+    CREATE TABLE IF NOT EXISTS import_merge_conflicts (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      source_platform TEXT NOT NULL,
+      source_url TEXT,
+      raw_file_name TEXT NOT NULL,
+      reason TEXT NOT NULL CHECK (reason IN ('divergent_messages', 'no_stable_overlap')),
+      existing_message_count INTEGER NOT NULL,
+      incoming_message_count INTEGER NOT NULL,
+      overlap_message_count INTEGER NOT NULL DEFAULT 0,
+      first_conflict_index INTEGER,
+      incoming_preview TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_import_merge_conflicts_conversation
+    ON import_merge_conflicts(conversation_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_import_merge_conflicts_created
+    ON import_merge_conflicts(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS capture_discovery_runs (
       id TEXT PRIMARY KEY,
       job_id TEXT REFERENCES capture_jobs(id) ON DELETE CASCADE,

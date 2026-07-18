@@ -31,7 +31,8 @@ const safeEvidenceIds = new Set([
   "capture",
   "extension",
   "model",
-  "resources"
+  "resources",
+  "merge"
 ]);
 
 export function aggregateHealth(checks: HealthCheck[]): HealthReport {
@@ -137,6 +138,22 @@ function databaseChecks(): HealthCheck[] {
     status: semantic === messages ? "healthy" : "degraded",
     evidence: `${semantic}/${messages} 条消息已建立语义索引。`,
     action: semantic === messages ? undefined : { label: "重建索引", href: "/conversations" }
+  });
+
+  const mergeConflicts = (
+    db.prepare("SELECT COUNT(*) AS count FROM import_merge_conflicts").get() as { count: number }
+  ).count;
+  const latestConflict = db
+    .prepare("SELECT source_platform, raw_file_name, created_at FROM import_merge_conflicts ORDER BY datetime(created_at) DESC LIMIT 1")
+    .get() as { source_platform: string; raw_file_name: string; created_at: string } | undefined;
+  checks.push({
+    id: "merge",
+    label: "导入合并冲突",
+    status: mergeConflicts === 0 ? "healthy" : "degraded",
+    evidence: mergeConflicts === 0
+      ? "未发现导入合并冲突。"
+      : `${mergeConflicts} 个同源对话合并冲突已保留，最近来自 ${latestConflict?.source_platform ?? "unknown"} / ${latestConflict?.raw_file_name ?? "unknown"}。`,
+    action: mergeConflicts === 0 ? undefined : { label: "查看导入页", href: "/import" }
   });
   return checks;
 }

@@ -78,6 +78,7 @@ export interface ImportResult {
   importedMessages: number;
   updatedConversations?: number;
   skippedDuplicates?: number;
+  mergeConflicts?: number;
   conversationIds: string[];
   errors: string[];
 }

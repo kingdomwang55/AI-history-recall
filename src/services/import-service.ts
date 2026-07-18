@@ -38,21 +38,25 @@ function messageSignature(message: { role: MessageRole; content: string }) {
   return `${safeRole(message.role)}\u0000${message.content.replace(/\r\n/g, "\n").trim()}`;
 }
 
-function appendStartIndex(
-  existing: Array<{ role: MessageRole; content: string }>,
-  incoming: Array<{ role: MessageRole; content: string }>
-) {
-  const existingSignatures = existing.map(messageSignature);
-  const incomingSignatures = incoming.map(messageSignature);
+type MergeAnalysis =
+  | { action: "duplicate"; appendFrom: number; overlap: number }
+  | { action: "append"; appendFrom: number; overlap: number }
+  | {
+      action: "conflict";
+      reason: "divergent_messages" | "no_stable_overlap";
+      overlap: number;
+      firstConflictIndex: number | null;
+    };
 
-  if (incomingSignatures.length === 0) return 0;
-
-  for (let start = 0; start <= existingSignatures.length - incomingSignatures.length; start += 1) {
-    if (incomingSignatures.every((signature, index) => existingSignatures[start + index] === signature)) {
-      return incomingSignatures.length;
-    }
+function commonPrefixLength(left: string[], right: string[]) {
+  const max = Math.min(left.length, right.length);
+  for (let index = 0; index < max; index += 1) {
+    if (left[index] !== right[index]) return index;
   }
+  return max;
+}
 
+function findTailOverlap(existingSignatures: string[], incomingSignatures: string[]) {
   const maxOverlap = Math.min(existingSignatures.length, incomingSignatures.length);
   for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
     const existingStart = existingSignatures.length - overlap;
@@ -60,13 +64,63 @@ function appendStartIndex(
       const matches = incomingSignatures
         .slice(incomingStart, incomingStart + overlap)
         .every((signature, index) => existingSignatures[existingStart + index] === signature);
-      if (matches) return incomingStart + overlap;
+      if (matches) return { incomingStart, overlap };
     }
+  }
+  return null;
+}
+
+function analyzeMerge(
+  existing: Array<{ role: MessageRole; content: string }>,
+  incoming: Array<{ role: MessageRole; content: string }>
+): MergeAnalysis {
+  const existingSignatures = existing.map(messageSignature);
+  const incomingSignatures = incoming.map(messageSignature);
+
+  if (incomingSignatures.length === 0) return { action: "duplicate", appendFrom: 0, overlap: 0 };
+
+  for (let start = 0; start <= existingSignatures.length - incomingSignatures.length; start += 1) {
+    if (incomingSignatures.every((signature, index) => existingSignatures[start + index] === signature)) {
+      return { action: "duplicate", appendFrom: incomingSignatures.length, overlap: incomingSignatures.length };
+    }
+  }
+
+  const commonPrefix = commonPrefixLength(existingSignatures, incomingSignatures);
+  if (commonPrefix > 0 && commonPrefix < Math.min(existingSignatures.length, incomingSignatures.length)) {
+    return {
+      action: "conflict",
+      reason: "divergent_messages",
+      overlap: commonPrefix,
+      firstConflictIndex: commonPrefix
+    };
+  }
+
+  const tailOverlap = findTailOverlap(existingSignatures, incomingSignatures);
+  if (tailOverlap) {
+    const appendFrom = tailOverlap.incomingStart + tailOverlap.overlap;
+    if (appendFrom >= incomingSignatures.length) {
+      return { action: "duplicate", appendFrom, overlap: tailOverlap.overlap };
+    }
+    return { action: "append", appendFrom, overlap: tailOverlap.overlap };
   }
 
   // A snapshot without any stable overlap may be partial or from a changed extractor.
   // Avoid corrupting the canonical transcript by appending an unrelated sequence.
-  return incomingSignatures.length;
+  return {
+    action: "conflict",
+    reason: "no_stable_overlap",
+    overlap: 0,
+    firstConflictIndex: null
+  };
+}
+
+function conflictPreview(messages: Array<{ role: MessageRole; content: string }>, index: number | null) {
+  const start = Math.max(index ?? 0, 0);
+  return messages
+    .slice(start, start + 3)
+    .map((message) => `${safeRole(message.role)}: ${message.content.replace(/\s+/g, " ").trim()}`)
+    .join("\n")
+    .slice(0, 800);
 }
 
 export async function importFile(input: ImportFileInput): Promise<ImportResult> {
@@ -143,6 +197,7 @@ function persistConversations(
     let importedMessages = 0;
     let updatedConversations = 0;
     let skippedDuplicates = 0;
+    let mergeConflicts = 0;
 
     const insertConversation = db.prepare(`
       INSERT INTO conversations (
@@ -183,6 +238,19 @@ function persistConversations(
       UPDATE conversations
       SET updated_at = @updatedAt
       WHERE id = @conversationId
+    `);
+
+    const insertMergeConflict = db.prepare(`
+      INSERT INTO import_merge_conflicts (
+        id, conversation_id, source_platform, source_url, raw_file_name,
+        reason, existing_message_count, incoming_message_count,
+        overlap_message_count, first_conflict_index, incoming_preview, created_at
+      )
+      VALUES (
+        @id, @conversationId, @sourcePlatform, @sourceUrl, @rawFileName,
+        @reason, @existingMessageCount, @incomingMessageCount,
+        @overlapMessageCount, @firstConflictIndex, @incomingPreview, @createdAt
+      )
     `);
 
     const insertSearchIndex = db.prepare(`
@@ -246,8 +314,29 @@ function persistConversations(
             role: MessageRole;
             content: string;
           }>;
-          const appendFrom = appendStartIndex(existingMessages, messages);
-          const appendedMessages = messages.slice(appendFrom);
+          const analysis = analyzeMerge(existingMessages, messages);
+
+          if (analysis.action === "conflict") {
+            insertMergeConflict.run({
+              id: randomUUID(),
+              conversationId: existing.id,
+              sourcePlatform,
+              sourceUrl,
+              rawFileName,
+              reason: analysis.reason,
+              existingMessageCount: existingMessages.length,
+              incomingMessageCount: messages.length,
+              overlapMessageCount: analysis.overlap,
+              firstConflictIndex: analysis.firstConflictIndex,
+              incomingPreview: conflictPreview(messages, analysis.firstConflictIndex),
+              createdAt: importedAt
+            });
+            mergeConflicts += 1;
+            conversationIds.push(existing.id);
+            continue;
+          }
+
+          const appendedMessages = messages.slice(analysis.appendFrom);
 
           if (appendedMessages.length === 0) {
             skippedDuplicates += 1;
@@ -389,7 +478,8 @@ function persistConversations(
       importedMessages,
       updatedConversations,
       conversationIds,
-      skippedDuplicates
+      skippedDuplicates,
+      mergeConflicts
     };
   });
 
