@@ -45,9 +45,10 @@ interface SemanticSignals {
 const conceptGroups = [
   ["search", "find", "lookup", "recall", "retrieve", "query", "检索", "搜索", "查找", "召回", "找回"],
   ["semantic", "embedding", "vector", "语义", "向量"],
-  ["capture", "snapshot", "采集", "抓取"],
+  ["capture", "snapshot", "incremental", "quiet", "采集", "抓取", "快照", "增量", "静默"],
   ["extension", "browser", "chrome", "浏览器", "扩展"],
-  ["sync", "synchronize", "同步"],
+  ["sync", "synchronize", "background", "schedule", "同步", "后台", "计划"],
+  ["desktop", "tray", "daemon", "idle", "resource", "cpu", "memory", "budget", "桌面", "托盘", "空闲", "资源", "占用", "内存", "预算"],
   ["import", "upload", "file", "adapter", "导入", "上传", "文件", "适配"],
   ["export", "download", "markdown", "json", "导出", "下载"],
   ["tag", "label", "note", "remark", "metadata", "标签", "备注", "笔记", "元数据"],

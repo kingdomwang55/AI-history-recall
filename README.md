@@ -105,6 +105,23 @@ npm run dev
 
 推荐优先用专门的 embedding 模型，例如 `embeddinggemma`、`qwen3-embedding`、`nomic-embed-text`、`mxbai-embed-large` 或 `bge-m3`。普通生成模型例如 `gemma4` 主要用于文本/多模态生成，不是 embedding 模型；除非运行时明确提供 embedding 向量接口，否则不建议拿它做语义搜索索引。
 
+### 搜索质量基准
+
+仓库内置了一组固定语料和固定查询，用来衡量语义搜索质量。默认基准只使用内置离线语义索引，会创建临时 SQLite，不污染用户数据库，也不会启动或调用外部 embedding 服务：
+
+```bash
+npm run search:benchmark
+```
+
+输出包含 `hitRateAtK`、`meanReciprocalRank`、每条查询的命中排名和 `modelCoverage`。对比外部 embedding 模型时，先显式配置模型并重建索引，再用同一组查询比较指标；如果本地模型没有提供 embedding 向量接口，应继续保持 `AIHR_EMBEDDING_PROVIDER` 关闭。
+
+```bash
+AIHR_EMBEDDING_PROVIDER=ollama \
+AIHR_EMBEDDING_MODEL=embeddinggemma \
+AIHR_EMBEDDING_BASE_URL=http://127.0.0.1:11434 \
+npm run search:benchmark -- --compare-current
+```
+
 ## 桌面版安装与发布
 
 桌面版基于 Tauri 2，安装后不需要另行安装 Node.js。首次启动会打开三步设置向导；之后关闭主窗口会销毁 WebView 和 UI 服务，只保留托盘与轻量本地守护进程。托盘菜单可以重新打开窗口、暂停后台采集或彻底退出。启用“登录时启动”后，应用会像 Clash Verge 一样只在托盘后台启动，不主动弹出窗口。
