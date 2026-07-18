@@ -85,6 +85,31 @@ test("desktop workflow builds unsigned installers on native macOS and Windows ru
   assert.doesNotMatch(workflow, /APPLE_(CERTIFICATE|SIGNING)|TAURI_SIGNING|WINDOWS_CERTIFICATE/);
 });
 
+test("release readiness checklist covers signing, notarization, Windows signing, and updates", () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const script = fs.readFileSync(new URL("../scripts/release-readiness-check.mjs", import.meta.url), "utf8");
+  const doc = fs.readFileSync(new URL("../docs/release-readiness.md", import.meta.url), "utf8");
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+
+  assert.equal(pkg.scripts["release:check"], "node scripts/release-readiness-check.mjs");
+  for (const token of [
+    "APPLE_CERTIFICATE_P12_BASE64",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "WINDOWS_CODESIGN_CERT_PFX_BASE64",
+    "WINDOWS_TIMESTAMP_URL",
+    "TAURI_SIGNING_PRIVATE_KEY",
+    "AIHR_UPDATE_BASE_URL"
+  ]) {
+    assert.match(script, new RegExp(token));
+    assert.match(doc, new RegExp(token));
+  }
+  assert.match(doc, /Production Release Gates/i);
+  assert.match(doc, /Gatekeeper assessment/);
+  assert.match(doc, /rollback/i);
+  assert.match(readme, /npm run release:check/);
+  assert.doesNotMatch(readme, /正式分发所需.*不在当前范围内/);
+});
+
 test("Tauri bundle declares product metadata, icons, and packaged resources", () => {
   const config = JSON.parse(
     fs.readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8")

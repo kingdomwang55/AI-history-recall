@@ -148,7 +148,7 @@ npx tauri build --bundles nsis,msi
 
 产物分别位于 `src-tauri/target/release/bundle/dmg/`、`src-tauri/target/release/bundle/nsis/` 和 `src-tauri/target/release/bundle/msi/`。`.github/workflows/desktop-build.yml` 会在原生 macOS 和 Windows runner 上完成测试、构建并上传保留 14 天的开发安装包；可手动触发，也会在版本 tag 和相关 pull request 上运行。
 
-当前开发安装包没有代码签名。macOS 请先把 DMG 中的应用拖入 `Applications` 再启动；若被 Gatekeeper 拦截，请在 Finder 中右键应用并选择“打开”，或在“系统设置 -> 隐私与安全性”中确认，不要全局关闭 Gatekeeper。Windows SmartScreen 出现警告时，只应对自己构建或来源可信的产物选择“更多信息 -> 仍要运行”。正式分发所需的代码签名、Apple notarization、Windows 签名证书和远程自动更新服务不在当前范围内。
+当前开发安装包没有代码签名。macOS 请先把 DMG 中的应用拖入 `Applications` 再启动；若被 Gatekeeper 拦截，请在 Finder 中右键应用并选择“打开”，或在“系统设置 -> 隐私与安全性”中确认，不要全局关闭 Gatekeeper。Windows SmartScreen 出现警告时，只应对自己构建或来源可信的产物选择“更多信息 -> 仍要运行”。正式分发的代码签名、Apple notarization、Windows 签名和自动更新门禁见 `docs/release-readiness.md`，可用 `npm run release:check` 检查基础发布配置。
 
 ### 首次使用与数据
 
@@ -585,7 +585,6 @@ data/
 
 - 平台页面结构变化后的 adapter/selector 维护与诊断工具
 - 对历史消息编辑、重新生成答案和分支对话做更细粒度的人工冲突处理；当前冲突会记录证据并保守保护原记录
-- 正式代码签名、公证和可回滚自动更新
 
 ## 常用命令
 

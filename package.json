@@ -11,6 +11,7 @@
     "desktop:build": "npm run desktop:prepare && tauri build",
     "desktop:measure-idle": "node scripts/measure-desktop-idle.mjs",
     "search:benchmark": "node scripts/search-quality-benchmark.mjs",
+    "release:check": "node scripts/release-readiness-check.mjs",
     "start": "next start -H 127.0.0.1",
     "lint": "eslint .",
     "test": "node --test test/*.test.mjs",
