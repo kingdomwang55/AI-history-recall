@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bot, Database, Search, Settings, Upload } from "lucide-react";
+import { Activity, Bot, Database, Network, Search, Settings, Upload } from "lucide-react";
 import { RecallLensLogo } from "@/components/RecallLensLogo";
 import { useLanguage } from "@/components/LanguageProvider";
 import type { TranslationKey } from "@/lib/i18n";
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/", labelKey: "nav.home", icon: Database },
   { href: "/capture", labelKey: "nav.capture", icon: Bot },
   { href: "/search", labelKey: "nav.search", icon: Search },
+  { href: "/knowledge", labelKey: "nav.knowledge", icon: Network },
   { href: "/import", labelKey: "nav.import", icon: Upload },
   { href: "/health", labelKey: "nav.health", icon: Activity },
   { href: "/settings", labelKey: "nav.settings", icon: Settings }

@@ -16,6 +16,7 @@ test("application shell exposes the enterprise workspace navigation", async () =
   assert.match(navigation, /app-topbar/);
   assert.match(navigation, /app-language-toggle/);
   assert.match(navigation, /nav\.localMode/);
+  assert.match(navigation, /nav\.knowledge/);
   assert.match(navigation, /nav\.searchPlaceholder/);
   assert.match(navigation, /RecallLensLogo/);
   assert.doesNotMatch(navigation, /\bArchive\b/);
@@ -23,6 +24,21 @@ test("application shell exposes the enterprise workspace navigation", async () =
   assert.match(logo, /RotateCcw/);
   assert.ok(navigation.indexOf('href: "/capture"') < navigation.indexOf('href: "/import"'));
   assert.ok(navigation.indexOf('href: "/search"') < navigation.indexOf('href: "/import"'));
+  assert.ok(navigation.indexOf('href: "/search"') < navigation.indexOf('href: "/knowledge"'));
+});
+
+test("knowledge page exposes project clusters and asset categories", async () => {
+  const page = await source("src/app/knowledge/page.tsx");
+  const service = await source("src/services/knowledge-organization-service.ts");
+
+  assert.match(page, /知识组织/);
+  assert.match(page, /项目聚类/);
+  assert.match(page, /问题资产分类/);
+  assert.match(page, /knowledge-overview-grid/);
+  assert.match(page, /project-cluster-grid/);
+  assert.match(page, /asset-category-list/);
+  assert.match(service, /getKnowledgeOrganization/);
+  assert.match(service, /assetDefinitions/);
 });
 
 test("search page uses a filter and result workspace", async () => {
