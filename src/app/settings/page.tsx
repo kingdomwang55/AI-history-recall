@@ -1,7 +1,13 @@
-import Link from "next/link";
-import { ListRestart } from "lucide-react";
 import { DesktopSettings } from "@/components/DesktopSettings";
+import { LocalizedPageHeader } from "@/components/LocalizedPageHeader";
 
 export default function SettingsPage() {
-  return <><header className="page-header"><div><div className="section-kicker">桌面应用</div><h1 className="page-title">设置</h1></div><Link className="desktop-secondary-button" href="/onboarding"><ListRestart size={15} />重新打开设置向导</Link></header><DesktopSettings /></>;
+  return <>
+    <LocalizedPageHeader
+      kickerKey="page.settings.kicker"
+      titleKey="page.settings.title"
+      action={{ href: "/onboarding", labelKey: "page.settings.reopen", icon: "restart" }}
+    />
+    <DesktopSettings />
+  </>;
 }

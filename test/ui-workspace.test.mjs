@@ -14,14 +14,15 @@ test("application shell exposes the enterprise workspace navigation", async () =
   assert.match(layout, /AppNavigation/);
   assert.match(navigation, /app-sidebar/);
   assert.match(navigation, /app-topbar/);
-  assert.match(navigation, /本地模式/);
-  assert.match(navigation, /搜索历史对话/);
+  assert.match(navigation, /app-language-toggle/);
+  assert.match(navigation, /nav\.localMode/);
+  assert.match(navigation, /nav\.searchPlaceholder/);
   assert.match(navigation, /RecallLensLogo/);
   assert.doesNotMatch(navigation, /\bArchive\b/);
   assert.match(logo, /MessageCircle/);
   assert.match(logo, /RotateCcw/);
-  assert.ok(navigation.indexOf('label: "采集"') < navigation.indexOf('label: "导入"'));
-  assert.ok(navigation.indexOf('label: "搜索"') < navigation.indexOf('label: "导入"'));
+  assert.ok(navigation.indexOf('href: "/capture"') < navigation.indexOf('href: "/import"'));
+  assert.ok(navigation.indexOf('href: "/search"') < navigation.indexOf('href: "/import"'));
 });
 
 test("search page uses a filter and result workspace", async () => {
@@ -50,6 +51,14 @@ test("search route removes the duplicate global search and platform badges inclu
   assert.match(badge, /platforms\/gemini\.svg/);
   assert.match(badge, /platforms\/deepseek\.svg/);
   assert.match(badge, /platforms\/qwen\.svg/);
+});
+
+test("capture route removes the misleading global search box", async () => {
+  const navigation = await source("src/components/AppNavigation.tsx");
+
+  assert.match(navigation, /globalSearchPages/);
+  assert.doesNotMatch(navigation, /"\/capture".*"\/search"/);
+  assert.match(navigation, /app-topbar-context/);
 });
 
 test("conversation detail keeps transcript and inspector in a responsive workspace", async () => {
@@ -108,8 +117,11 @@ test("desktop pages expose the setup wizard and use the daemon extension bridge"
   const desktopSettings = await source("src/components/DesktopSettings.tsx");
   const bridge = await source("src/components/capture/useExtensionBridge.ts");
 
-  assert.match(capture, /href="\/onboarding"/);
-  assert.match(settings, /href="\/onboarding"/);
+  assert.match(capture, /href: "\/onboarding"/);
+  assert.match(settings, /href: "\/onboarding"/);
+  assert.match(capture, /LocalizedPageHeader/);
+  assert.match(settings, /LocalizedPageHeader/);
+  assert.match(desktopSettings, /settings\.language/);
   assert.match(desktopSettings, /\/api\/desktop\/extension-bridge/);
   assert.match(bridge, /\/api\/desktop\/extension-status/);
   assert.match(bridge, /\/api\/desktop\/extension-bridge/);

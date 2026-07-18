@@ -41,6 +41,8 @@ test("packaging script excludes development data and carries daemon native depen
   assert.match(script, /AIHR_SKIP_WEB_BUILD/);
   assert.match(script, /createRequire as __aihrCreateRequire/);
   assert.match(script, /const require = __aihrCreateRequire/);
+  assert.match(script, /exposePnpmRuntimeDependencies/);
+  assert.match(script, /path\.join\(uiDir, "node_modules"\)/);
 });
 
 test("UI launcher reserves loopback only and shares desktop credentials", async () => {
@@ -100,4 +102,12 @@ test("Tauri bundle declares product metadata, icons, and packaged resources", ()
     "resources/runtime"
   ]);
   assert.equal(config.bundle.externalBin, undefined);
+});
+
+test("macOS tray icon uses a template image instead of a filled square", () => {
+  const tray = fs.readFileSync(new URL("../src-tauri/src/tray.rs", import.meta.url), "utf8");
+
+  assert.match(tray, /\.icon_as_template\(true\)/);
+  assert.match(tray, /on_line/);
+  assert.doesNotMatch(tray, /x == 6 \|\| x == 25 \|\| y == 5 \|\| y == 26/);
 });

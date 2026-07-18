@@ -26,6 +26,22 @@ export interface SearchResult {
   score?: number;
 }
 
+export function getSearchCorpusStats() {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `
+      SELECT
+        (SELECT COUNT(*) FROM conversations) AS conversations,
+        (SELECT COUNT(*) FROM messages) AS messages,
+        (SELECT COUNT(*) FROM search_index) AS indexedMessages
+    `
+    )
+    .get() as { conversations: number; messages: number; indexedMessages: number };
+
+  return row;
+}
+
 export function getSearchFacets() {
   const db = getDb();
 

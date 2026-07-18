@@ -2,7 +2,13 @@ import Link from "next/link";
 import { ChevronDown, Search, SlidersHorizontal } from "lucide-react";
 import { formatDateTime, roleLabel } from "@/lib/format";
 import { PlatformBadge } from "@/components/PlatformBadge";
-import { HIGHLIGHT_END, HIGHLIGHT_START, getSearchFacets, searchConversations } from "@/services/search-service";
+import {
+  HIGHLIGHT_END,
+  HIGHLIGHT_START,
+  getSearchCorpusStats,
+  getSearchFacets,
+  searchConversations
+} from "@/services/search-service";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +93,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     sort: params.sort === "oldest" ? "oldest" : "newest"
   };
   const facets = getSearchFacets();
+  const corpus = getSearchCorpusStats();
   const results = searchConversations(filters);
   const backQuery = new URLSearchParams();
   if (filters.query) backQuery.set("q", filters.query);
@@ -115,7 +122,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 
         <section className="search-result-list">
           <div className="panel-header bg-[var(--surface)]"><div><h2 className="panel-title">{filters.query ? "搜索结果" : "最近对话"}</h2><div className="mt-0.5 text-xs text-[var(--muted)]">共 {results.length} 条结果</div></div></div>
-          {results.length === 0 ? <div className="p-10 text-sm text-[var(--muted)]">没有找到匹配结果。可以换一个关键词，或先导入更多历史文件。</div> : (
+          {results.length === 0 ? (
+            <div className="p-10 text-sm text-[var(--muted)]">
+              {corpus.conversations === 0
+                ? "当前数据目录还没有对话。请先导入历史文件，或在设置中恢复已有备份。"
+                : "没有找到匹配结果。可以换一个关键词，或清空部分筛选条件。"}
+            </div>
+          ) : (
             <div className="divide-y divide-[var(--line)]">
               {results.map((result) => (
                 <Link key={`${result.conversationId}-${result.messageId ?? "conversation"}`} href={`/conversations/${result.conversationId}?from=${encodeURIComponent(backQuery.toString())}`} className="group grid gap-2 px-5 py-4 transition hover:bg-[var(--surface-subtle)] sm:grid-cols-[minmax(0,1fr)_150px]">

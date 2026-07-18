@@ -16,6 +16,17 @@ const targetTriples = new Map([
   ["win32-x64", "x86_64-pc-windows-msvc"]
 ]);
 
+const pnpmRuntimeDependencies = [
+  "@next/env",
+  "@swc/helpers",
+  "bindings",
+  "file-uri-to-path",
+  "postcss",
+  "react",
+  "react-dom",
+  "styled-jsx"
+];
+
 export function planDesktopResources({ platform = process.platform, arch = process.arch } = {}) {
   const targetTriple = targetTriples.get(`${platform}-${arch}`);
   if (!targetTriple) throw new Error(`Unsupported desktop target: ${platform}-${arch}`);
@@ -85,6 +96,34 @@ function materializeSymlinks(root) {
   }
 }
 
+function findPnpmPackage(nodeModulesDir, packageName) {
+  const pnpmDir = path.join(nodeModulesDir, ".pnpm");
+  if (!fs.existsSync(pnpmDir)) return null;
+
+  for (const packageStore of fs.readdirSync(pnpmDir, { withFileTypes: true })) {
+    if (!packageStore.isDirectory()) continue;
+    const packageNodeModulesDir = path.join(pnpmDir, packageStore.name, "node_modules");
+    if (!fs.existsSync(packageNodeModulesDir)) continue;
+
+    const candidate = path.join(packageNodeModulesDir, ...packageName.split("/"));
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function exposePnpmRuntimeDependencies(nodeModulesDir) {
+  for (const packageName of pnpmRuntimeDependencies) {
+    const destination = path.join(nodeModulesDir, ...packageName.split("/"));
+    if (fs.existsSync(destination)) continue;
+    const source = findPnpmPackage(nodeModulesDir, packageName);
+    if (!source) throw new Error(`Unable to expose pnpm runtime dependency: ${packageName}`);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    copyDirectory(source, destination, { dereference: true });
+    materializeSymlinks(destination);
+  }
+}
+
 export async function prepareDesktopResources(options = {}) {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
@@ -123,6 +162,7 @@ export async function prepareDesktopResources(options = {}) {
 
   copyDirectory(path.join(rootDir, ".next", "standalone"), uiDir, { dereference: true });
   materializeSymlinks(uiDir);
+  exposePnpmRuntimeDependencies(path.join(uiDir, "node_modules"));
   fs.rmSync(path.join(uiDir, "data"), { recursive: true, force: true });
   copyDirectory(path.join(rootDir, ".next", "static"), path.join(uiDir, ".next", "static"));
   if (fs.existsSync(path.join(rootDir, "public"))) {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppNavigation } from "@/components/AppNavigation";
 import { KnowledgeHeartbeat } from "@/components/KnowledgeHeartbeat";
+import { LanguageProvider } from "@/components/LanguageProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,11 +18,13 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <KnowledgeHeartbeat />
-        <div className="app-shell">
-          <AppNavigation />
-          <main className="app-content">{children}</main>
-        </div>
+        <LanguageProvider>
+          <KnowledgeHeartbeat />
+          <div className="app-shell">
+            <AppNavigation />
+            <main className="app-content">{children}</main>
+          </div>
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -8,7 +8,7 @@ import path from "node:path";
 register("./path-alias-loader.mjs", import.meta.url);
 
 const { importParsedConversations } = await import("../src/services/import-service.ts");
-const { HIGHLIGHT_END, HIGHLIGHT_START, getSearchFacets, searchConversations } = await import("../src/services/search-service.ts");
+const { HIGHLIGHT_END, HIGHLIGHT_START, getSearchCorpusStats, getSearchFacets, searchConversations } = await import("../src/services/search-service.ts");
 const { processKnowledgeBatch } = await import("../src/services/knowledge-worker-service.ts");
 const { getDb } = await import("../src/lib/db.ts");
 
@@ -71,6 +71,17 @@ test("returns imported conversations through the FTS index", () => {
   assert.equal(results[0].sourcePlatform, "gemini");
   assert.match(results[0].snippet, /nebula-rutabaga/);
   assert.ok(["keyword", "hybrid"].includes(results[0].matchKind));
+});
+
+test("reports searchable corpus counts for empty-state messaging", () => {
+  useTempDb();
+  seedSearchConversation();
+
+  assert.deepEqual(getSearchCorpusStats(), {
+    conversations: 1,
+    messages: 2,
+    indexedMessages: 2
+  });
 });
 
 test("falls back to recent results when a query has no searchable terms", () => {

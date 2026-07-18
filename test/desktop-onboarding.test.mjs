@@ -36,6 +36,7 @@ test("first run requires storage, extension pairing, and first data action", () 
 
 test("desktop settings keep models disabled and close-to-tray enabled by default", () => {
   assert.deepEqual(normalizeDesktopSettings({}), {
+    language: "zh-CN",
     closeToTray: true,
     backgroundCapture: true,
     knowledgeProcessing: true,
@@ -48,6 +49,8 @@ test("desktop settings keep models disabled and close-to-tray enabled by default
     knowledgeBaseUrl: "",
     knowledgeApiKey: ""
   });
+  assert.equal(normalizeDesktopSettings({ language: "en-US" }).language, "en-US");
+  assert.equal(normalizeDesktopSettings({ language: "fr-FR" }).language, "zh-CN");
 });
 
 test("desktop extension pairs through the fixed loopback daemon instead of the WebView", () => {

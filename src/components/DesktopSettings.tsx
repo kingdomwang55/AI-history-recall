@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Download, Loader2, RotateCcw, Save, Upload } from "lucide-react";
 import { withApiToken } from "@/lib/client-api";
 import type { DesktopSettings as Settings } from "@/lib/onboarding";
+import { useLanguage } from "@/components/LanguageProvider";
+import type { Language } from "@/lib/i18n";
 
 interface Status { settings: Settings; dataDirectory: string; restartRequired?: boolean }
 
@@ -14,6 +16,7 @@ async function request(init?: RequestInit) {
 }
 
 export function DesktopSettings() {
+  const { setLanguage, t } = useLanguage();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dataDirectory, setDataDirectory] = useState("");
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
@@ -79,8 +82,13 @@ export function DesktopSettings() {
 
   if (!settings) return <div className="desktop-loading"><Loader2 className="health-spin" size={18} /> 正在读取设置</div>;
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings({ ...settings, [key]: value });
+  const updateLanguage = (value: Language) => {
+    update("language", value);
+    setLanguage(value);
+  };
   return <div className="settings-workspace">
     <section className="settings-section"><div className="settings-heading"><h2>启动与后台</h2><p>{dataDirectory}</p></div>
+      <label className="settings-field"><span>{t("settings.language")}</span><select value={settings.language} onChange={(event) => updateLanguage(event.target.value as Language)}><option value="zh-CN">{t("settings.language.zh")}</option><option value="en-US">{t("settings.language.en")}</option></select><small className="text-[10px] text-[var(--muted)]">{t("settings.languageHint")}</small></label>
       <label className="settings-toggle"><span><strong>登录时启动</strong><small>仅显示托盘，不打开窗口</small></span><input type="checkbox" checked={launchAtLogin} onChange={(event) => setLaunchAtLogin(event.target.checked)} /></label>
       <label className="settings-toggle"><span><strong>关闭到托盘</strong><small>销毁界面并保留轻量后台服务</small></span><input type="checkbox" checked={settings.closeToTray} onChange={(event) => update("closeToTray", event.target.checked)} /></label>
       <label className="settings-toggle"><span><strong>浏览器后台采集</strong><small>允许扩展按计划检查新对话</small></span><input type="checkbox" checked={settings.backgroundCapture} onChange={(event) => update("backgroundCapture", event.target.checked)} /></label>

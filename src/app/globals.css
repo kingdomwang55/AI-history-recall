@@ -98,7 +98,10 @@ mark { border-radius: 2px; background: #fff1a8; color: inherit; padding: 0 2px; 
 .app-global-search:focus-within { border-color: color-mix(in srgb, var(--primary) 55%, transparent); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
 .app-global-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--foreground); font-size: 13px; }
 .app-topbar-context { display: inline-flex; height: 36px; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.app-language-toggle { margin-left: auto; display: inline-flex; height: 30px; min-width: 38px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted-strong); font-size: 12px; font-weight: 700; }
+.app-language-toggle:hover { border-color: var(--border-strong); background: var(--surface-subtle); color: var(--foreground); }
 .app-local-status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--muted-strong); font-size: 12px; white-space: nowrap; }
+.app-language-toggle + .app-local-status { margin-left: 0; }
 .app-mobile-brand, .app-mobile-nav { display: none; }
 .app-content { min-width: 0; padding: 28px 32px 48px; }
 
@@ -274,6 +277,7 @@ button:disabled { color: var(--text-disabled); }
   .app-topbar { inset-left: 0; left: 0; gap: 10px; padding: 0 12px; }
   .app-mobile-brand { display: inline-flex; flex: 0 0 auto; text-decoration: none; }
   .app-global-search { width: auto; min-width: 0; flex: 1; }
+  .app-language-toggle { margin-left: 0; min-width: 34px; }
   .app-local-status { display: none; }
   .app-mobile-nav { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
   .app-mobile-nav a { display: inline-flex; height: 34px; width: 34px; align-items: center; justify-content: center; border-radius: 5px; color: var(--muted); }

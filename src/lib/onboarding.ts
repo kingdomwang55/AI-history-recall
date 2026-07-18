@@ -1,3 +1,5 @@
+import { normalizeLanguage, type Language } from "@/lib/i18n";
+
 export type OnboardingStep = "storage" | "extension" | "first-data" | "complete";
 
 export interface OnboardingState {
@@ -8,6 +10,7 @@ export interface OnboardingState {
 }
 
 export interface DesktopSettings {
+  language: Language;
   closeToTray: boolean;
   backgroundCapture: boolean;
   knowledgeProcessing: boolean;
@@ -38,6 +41,7 @@ export function normalizeDesktopSettings(value: unknown): DesktopSettings {
     ? (raw.embeddingProvider as DesktopSettings["embeddingProvider"])
     : "disabled";
   return {
+    language: normalizeLanguage(raw.language),
     closeToTray: raw.closeToTray !== false,
     backgroundCapture: raw.backgroundCapture !== false,
     knowledgeProcessing: raw.knowledgeProcessing !== false,
