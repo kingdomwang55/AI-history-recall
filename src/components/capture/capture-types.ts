@@ -138,7 +138,15 @@ export type ExtensionRunStatus = {
     enabled: boolean;
     intervalMinutes: number;
     scanLimit: number;
+    maxScrolls: number;
     stopAfterKnown: number;
+    platforms?: Partial<Record<Platform, {
+      enabled: boolean;
+      intervalMinutes: number;
+      scanLimit: number;
+      maxScrolls: number;
+      stopAfterKnown: number;
+    }>>;
     nextAt: string | null;
   };
   error?: string;

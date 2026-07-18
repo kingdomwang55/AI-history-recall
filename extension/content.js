@@ -218,7 +218,24 @@
       }
 
       if (message.type === "AIHR_WEB_SET_BACKGROUND_SYNC") {
-        sendRuntimeMessage({ type: "AIHR_SET_BACKGROUND_SYNC", enabled: message.enabled !== false })
+        sendRuntimeMessage({
+          type: "AIHR_SET_BACKGROUND_SYNC",
+          enabled: message.enabled !== false,
+          settings: message.settings,
+          platforms: message.platforms
+        })
+          .then((result) => respond({ type: "AIHR_WEB_BACKGROUND_SYNC_RESULT", ok: true, result }))
+          .catch((error) =>
+            respond({
+              type: "AIHR_WEB_BACKGROUND_SYNC_RESULT",
+              ok: false,
+              error: error instanceof Error ? error.message : "Background sync update failed."
+            })
+          );
+      }
+
+      if (message.type === "AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS") {
+        sendRuntimeMessage({ type: "AIHR_SET_BACKGROUND_SYNC", settings: message.settings || message })
           .then((result) => respond({ type: "AIHR_WEB_BACKGROUND_SYNC_RESULT", ok: true, result }))
           .catch((error) =>
             respond({

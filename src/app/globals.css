@@ -256,6 +256,12 @@ mark { border-radius: 2px; background: #fff1a8; color: inherit; padding: 0 2px; 
 .settings-field { display: grid; gap: 6px; }
 .settings-field > span { color: var(--muted-strong); font-size: 10px; font-weight: 650; }
 .settings-field input, .settings-field select { min-width: 0; height: 36px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); padding: 0 10px; color: var(--foreground); font-size: 12px; }
+.settings-heading-compact { padding-top: 10px; }
+.settings-heading-compact h3 { margin: 0; font-size: 12px; }
+.platform-sync-settings { border-top: 1px solid var(--line); }
+.platform-sync-row { display: grid; grid-template-columns: minmax(160px, 1.45fr) repeat(4, minmax(74px, .8fr)); gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.platform-sync-enabled { min-height: 42px; border-top: 0; }
+.platform-sync-row .settings-field input { height: 32px; padding: 0 8px; }
 .settings-save-bar { position: fixed; right: 0; bottom: 0; left: var(--sidebar-width); z-index: 20; display: flex; min-height: 58px; align-items: center; justify-content: flex-end; gap: 18px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 94%, transparent); padding: 10px 32px; }
 .settings-save-bar > span { color: var(--muted); font-size: 10px; }
 
@@ -304,7 +310,7 @@ button:disabled { color: var(--text-disabled); }
   .onboarding-steps li { justify-content: center; padding: 10px; }
   .onboarding-steps li > div { display: none; }
   .onboarding-panel { min-height: 360px; padding: 28px 20px; }
-  .first-data-actions, .settings-grid { grid-template-columns: 1fr; }
+  .first-data-actions, .settings-grid, .platform-sync-row { grid-template-columns: 1fr; }
   .settings-grid-wide { grid-column: auto; }
   .settings-heading { display: block; }
   .settings-heading p { margin-top: 4px; }

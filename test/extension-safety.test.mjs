@@ -60,8 +60,13 @@ test("DeepSeek discovery marks the pinned group as outside the recent known stre
 
 test("background sync is opt-in and background Qwen discovery does not open windows", () => {
   const background = fs.readFileSync(path.join(process.cwd(), "extension", "background.js"), "utf8");
+  const protocol = fs.readFileSync(path.join(process.cwd(), "extension", "core", "protocol.js"), "utf8");
 
-  assert.match(background, /enabled:\s*stored\.aihrBackgroundSyncSettings\?\.enabled === true/);
+  assert.match(background, /enabled:\s*raw\.enabled === true/);
+  assert.match(background, /BACKGROUND_PLATFORM_DEFAULTS/);
+  assert.match(background, /settings\.platforms\[platform\]/);
+  assert.match(background, /AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS/);
+  assert.match(protocol, /AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS/);
   assert.match(background, /background:\s*true/);
   assert.match(background, /stopReason:\s*"background_requires_open_qwen_tab"/);
 });

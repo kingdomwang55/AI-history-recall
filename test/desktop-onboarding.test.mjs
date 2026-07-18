@@ -35,10 +35,17 @@ test("first run requires storage, extension pairing, and first data action", () 
 });
 
 test("desktop settings keep models disabled and close-to-tray enabled by default", () => {
+  const platformSync = {
+    chatgpt: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+    gemini: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+    deepseek: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+    qwen: { enabled: true, intervalMinutes: 720, scanLimit: 40, maxScrolls: 20, stopAfterKnown: 8 }
+  };
   assert.deepEqual(normalizeDesktopSettings({}), {
     language: "zh-CN",
     closeToTray: true,
     backgroundCapture: true,
+    platformSync,
     knowledgeProcessing: true,
     embeddingProvider: "disabled",
     embeddingModel: "",
@@ -51,6 +58,14 @@ test("desktop settings keep models disabled and close-to-tray enabled by default
   });
   assert.equal(normalizeDesktopSettings({ language: "en-US" }).language, "en-US");
   assert.equal(normalizeDesktopSettings({ language: "fr-FR" }).language, "zh-CN");
+  assert.deepEqual(
+    normalizeDesktopSettings({
+      platformSync: {
+        chatgpt: { enabled: false, intervalMinutes: 1, scanLimit: 999, maxScrolls: 0, stopAfterKnown: 99 }
+      }
+    }).platformSync.chatgpt,
+    { enabled: false, intervalMinutes: 60, scanLimit: 100, maxScrolls: 5, stopAfterKnown: 30 }
+  );
 });
 
 test("desktop extension pairs through the fixed loopback daemon instead of the WebView", () => {

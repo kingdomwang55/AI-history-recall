@@ -122,6 +122,8 @@ test("desktop pages expose the setup wizard and use the daemon extension bridge"
   assert.match(capture, /LocalizedPageHeader/);
   assert.match(settings, /LocalizedPageHeader/);
   assert.match(desktopSettings, /settings\.language/);
+  assert.match(desktopSettings, /平台同步策略/);
+  assert.match(desktopSettings, /AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS/);
   assert.match(desktopSettings, /\/api\/desktop\/extension-bridge/);
   assert.match(bridge, /\/api\/desktop\/extension-status/);
   assert.match(bridge, /\/api\/desktop\/extension-bridge/);

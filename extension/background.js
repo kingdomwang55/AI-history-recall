@@ -30,6 +30,12 @@ const PLATFORM_HISTORY_URLS = {
   deepseek: "https://chat.deepseek.com/",
   qwen: "https://www.qianwen.com/"
 };
+const BACKGROUND_PLATFORM_DEFAULTS = {
+  chatgpt: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+  gemini: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+  deepseek: { enabled: true, intervalMinutes: 360, scanLimit: 50, maxScrolls: 30, stopAfterKnown: 10 },
+  qwen: { enabled: true, intervalMinutes: 720, scanLimit: 40, maxScrolls: 20, stopAfterKnown: 8 }
+};
 captureQueue.configure({
   extensionVersion: EXTENSION_VERSION,
   extensionBuildId: EXTENSION_BUILD_ID,
@@ -1103,37 +1109,99 @@ async function runAllPlatformsCapture({ sourceTabId, options }) {
   }
 }
 
-async function getBackgroundSyncSettings() {
-  const stored = await chromeApi.storage.get("aihrBackgroundSyncSettings");
+function boundedBackgroundNumber(value, fallback, min, max) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return fallback;
+  return Math.min(Math.max(Math.round(next), min), max);
+}
+
+function normalizeBackgroundPlatformSettings(platform, raw = {}, legacy = {}) {
+  const defaults = BACKGROUND_PLATFORM_DEFAULTS[platform] || BACKGROUND_PLATFORM_DEFAULTS.chatgpt;
   return {
-    enabled: stored.aihrBackgroundSyncSettings?.enabled === true,
-    intervalMinutes: Math.min(
-      Math.max(Number(stored.aihrBackgroundSyncSettings?.intervalMinutes) || 360, 60),
+    enabled: raw.enabled !== false,
+    intervalMinutes: boundedBackgroundNumber(
+      raw.intervalMinutes ?? legacy.intervalMinutes,
+      defaults.intervalMinutes,
+      60,
       1440
     ),
-    scanLimit: Math.min(Math.max(Number(stored.aihrBackgroundSyncSettings?.scanLimit) || 50, 20), 100),
-    stopAfterKnown: Math.min(
-      Math.max(Number(stored.aihrBackgroundSyncSettings?.stopAfterKnown) || 10, 3),
+    scanLimit: boundedBackgroundNumber(raw.scanLimit ?? legacy.scanLimit, defaults.scanLimit, 20, 100),
+    maxScrolls: boundedBackgroundNumber(raw.maxScrolls ?? legacy.maxScrolls, defaults.maxScrolls, 5, 80),
+    stopAfterKnown: boundedBackgroundNumber(
+      raw.stopAfterKnown ?? legacy.stopAfterKnown,
+      defaults.stopAfterKnown,
+      3,
       30
     )
   };
 }
 
-async function setBackgroundSyncEnabled(enabled) {
-  const settings = await getBackgroundSyncSettings();
-  const nextSettings = { ...settings, enabled: Boolean(enabled) };
-  await chromeApi.storage.set({ aihrBackgroundSyncSettings: nextSettings });
+function normalizeBackgroundSyncSettings(raw = {}) {
+  const legacy = {
+    intervalMinutes: raw.intervalMinutes,
+    scanLimit: raw.scanLimit,
+    maxScrolls: raw.maxScrolls,
+    stopAfterKnown: raw.stopAfterKnown
+  };
+  const platforms = Object.keys(PLATFORM_HISTORY_URLS).reduce((result, platform) => {
+    result[platform] = normalizeBackgroundPlatformSettings(platform, raw.platforms?.[platform], legacy);
+    return result;
+  }, {});
+  const firstPlatform = platforms.chatgpt || Object.values(platforms)[0];
+  return {
+    enabled: raw.enabled === true,
+    intervalMinutes: firstPlatform.intervalMinutes,
+    scanLimit: firstPlatform.scanLimit,
+    maxScrolls: firstPlatform.maxScrolls,
+    stopAfterKnown: firstPlatform.stopAfterKnown,
+    platforms
+  };
+}
+
+async function getBackgroundSyncSettings() {
+  const stored = await chromeApi.storage.get("aihrBackgroundSyncSettings");
+  return normalizeBackgroundSyncSettings(stored.aihrBackgroundSyncSettings || {});
+}
+
+async function postBackgroundSyncState(settings) {
   await Promise.all(
-    Object.keys(PLATFORM_HISTORY_URLS).map((platform) =>
-      postSyncState(platform, "background", { enabled: nextSettings.enabled }).catch(() => undefined)
-    )
+    Object.keys(PLATFORM_HISTORY_URLS).map((platform) => {
+      const policy = settings.platforms[platform] || normalizeBackgroundPlatformSettings(platform);
+      return postSyncState(platform, "background", {
+        enabled: settings.enabled && policy.enabled,
+        strategy: policy
+      }).catch(() => undefined);
+    })
   );
-  if (nextSettings.enabled) {
+}
+
+async function saveBackgroundSyncSettings(settings) {
+  await chromeApi.storage.set({ aihrBackgroundSyncSettings: settings });
+  await postBackgroundSyncState(settings);
+  if (settings.enabled) {
     await scheduleBackgroundAutoPilot(scheduler.enabledDelay());
   } else {
     await scheduler.clearAutoPilot();
   }
-  return nextSettings;
+  return settings;
+}
+
+async function setBackgroundSyncEnabled(enabled) {
+  const settings = await getBackgroundSyncSettings();
+  return saveBackgroundSyncSettings({ ...settings, enabled: Boolean(enabled) });
+}
+
+async function setBackgroundSyncSettings(rawSettings = {}) {
+  const current = await getBackgroundSyncSettings();
+  const nextSettings = normalizeBackgroundSyncSettings({
+    ...current,
+    ...rawSettings,
+    platforms: {
+      ...current.platforms,
+      ...(rawSettings.platforms || {})
+    }
+  });
+  return saveBackgroundSyncSettings(nextSettings);
 }
 
 async function scheduleBackgroundAutoPilot(delayMs = AUTO_PILOT_INTERVAL_MS) {
@@ -1170,38 +1238,49 @@ async function runBackgroundAutoPilot() {
 
   const payload = await response.json();
   const now = Date.now();
-  const intervalMs = settings.intervalMinutes * 60 * 1000;
-  const platforms = (payload?.audit?.platforms || [])
-    .filter(
-      (item) => {
-        const syncState = item?.syncState || {};
-        if (syncState.backgroundEnabled === false) return false;
-        const backoffUntil = syncState.backoffUntil ? Date.parse(syncState.backoffUntil) : 0;
-        if (backoffUntil > now) return false;
-        const lastSyncedAt = syncState.lastSyncedAt ? Date.parse(syncState.lastSyncedAt) : 0;
-        return !lastSyncedAt || now - lastSyncedAt >= intervalMs;
-      }
-    )
-    .map((item) => item.platform)
-    .filter((platform) => PLATFORM_HISTORY_URLS[platform]);
+  let nextDelayMs = AUTO_PILOT_INTERVAL_MS;
+  const due = [];
 
-  if (!platforms.length) {
-    await scheduleBackgroundAutoPilot(intervalMs);
+  for (const item of payload?.audit?.platforms || []) {
+    const platform = item?.platform;
+    if (!PLATFORM_HISTORY_URLS[platform]) continue;
+    const policy = settings.platforms[platform] || normalizeBackgroundPlatformSettings(platform);
+    const syncState = item?.syncState || {};
+    if (!policy.enabled || syncState.backgroundEnabled === false) continue;
+
+    const backoffUntil = syncState.backoffUntil ? Date.parse(syncState.backoffUntil) : 0;
+    if (backoffUntil > now) {
+      nextDelayMs = Math.min(nextDelayMs, Math.max(backoffUntil - now, AUTO_PILOT_RETRY_MS));
+      continue;
+    }
+
+    const intervalMs = policy.intervalMinutes * 60 * 1000;
+    const lastSyncedAt = syncState.lastSyncedAt ? Date.parse(syncState.lastSyncedAt) : 0;
+    if (!lastSyncedAt || now - lastSyncedAt >= intervalMs) {
+      due.push({ platform, policy });
+      continue;
+    }
+    nextDelayMs = Math.min(nextDelayMs, Math.max(intervalMs - (now - lastSyncedAt), 60000));
+  }
+
+  if (!due.length) {
+    await scheduleBackgroundAutoPilot(nextDelayMs);
     return;
   }
 
-  await scheduler.setAutoPilotNextAt(Date.now() + intervalMs);
+  const nextIntervalMs = Math.min(...due.map(({ policy }) => policy.intervalMinutes * 60 * 1000));
+  await scheduler.setAutoPilotNextAt(Date.now() + nextIntervalMs);
   await runAllPlatformsCapture({
     sourceTabId: undefined,
     options: {
-      platforms,
+      platforms: due.map(({ platform }) => platform),
       mode: "incremental",
       background: true,
-      maxItems: settings.scanLimit,
-      maxScrolls: 30,
+      maxItems: Math.max(...due.map(({ policy }) => policy.scanLimit)),
+      maxScrolls: Math.max(...due.map(({ policy }) => policy.maxScrolls)),
       delayMs: 3800,
       stopAfterNoNewScrolls: 4,
-      stopAfterKnown: settings.stopAfterKnown,
+      stopAfterKnown: Math.max(...due.map(({ policy }) => policy.stopAfterKnown)),
       pageDelayMs: DEFAULT_DELAY_MS,
       pageJitterMs: DEFAULT_JITTER_MS
     }
@@ -1312,7 +1391,15 @@ async function executeDesktopCommand(message) {
     return { ok: true, run: await getRuntimeStatus() };
   }
   if (message?.type === "AIHR_WEB_SET_BACKGROUND_SYNC") {
-    await setBackgroundSyncEnabled(message.enabled);
+    if (message.settings || message.platforms) {
+      await setBackgroundSyncSettings({ ...(message.settings || {}), platforms: message.platforms });
+    } else {
+      await setBackgroundSyncEnabled(message.enabled);
+    }
+    return { ok: true, run: await getRuntimeStatus() };
+  }
+  if (message?.type === "AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS") {
+    await setBackgroundSyncSettings(message.settings || message);
     return { ok: true, run: await getRuntimeStatus() };
   }
   if (message?.type === "AIHR_WEB_STOP_CAPTURE") {
@@ -1410,7 +1497,10 @@ chromeApi.onMessage((message, sender, sendResponse) => {
   }
 
   if (message?.type === "AIHR_SET_BACKGROUND_SYNC") {
-    setBackgroundSyncEnabled(message.enabled)
+    const update = message.settings || message.platforms
+      ? setBackgroundSyncSettings({ ...(message.settings || {}), platforms: message.platforms })
+      : setBackgroundSyncEnabled(message.enabled);
+    update
       .then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) =>
         sendResponse({ ok: false, error: error instanceof Error ? error.message : "Background sync update failed." })

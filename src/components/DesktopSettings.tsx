@@ -3,11 +3,18 @@
 import { useEffect, useState } from "react";
 import { Download, Loader2, RotateCcw, Save, Upload } from "lucide-react";
 import { withApiToken } from "@/lib/client-api";
-import type { DesktopSettings as Settings } from "@/lib/onboarding";
+import type { DesktopSettings as Settings, SyncPlatform } from "@/lib/onboarding";
 import { useLanguage } from "@/components/LanguageProvider";
 import type { Language } from "@/lib/i18n";
 
 interface Status { settings: Settings; dataDirectory: string; restartRequired?: boolean }
+
+const syncPlatforms: Array<{ platform: SyncPlatform; name: string }> = [
+  { platform: "chatgpt", name: "ChatGPT" },
+  { platform: "gemini", name: "Gemini" },
+  { platform: "deepseek", name: "DeepSeek" },
+  { platform: "qwen", name: "通义千问" }
+];
 
 async function request(init?: RequestInit) {
   const response = await fetch("/api/desktop/status", { ...init, cache: "no-store", headers: withApiToken(init?.headers) });
@@ -41,7 +48,13 @@ export function DesktopSettings() {
         headers: withApiToken({ "content-type": "application/json" }),
         body: JSON.stringify({
           kind: "command",
-          message: { type: "AIHR_WEB_SET_BACKGROUND_SYNC", enabled: status.settings.backgroundCapture }
+          message: {
+            type: "AIHR_WEB_SET_BACKGROUND_SYNC_SETTINGS",
+            settings: {
+              enabled: status.settings.backgroundCapture,
+              platforms: status.settings.platformSync
+            }
+          }
         })
       }).catch(() => undefined);
       try {
@@ -86,12 +99,34 @@ export function DesktopSettings() {
     update("language", value);
     setLanguage(value);
   };
+  const updatePlatformSync = (platform: SyncPlatform, patch: Partial<Settings["platformSync"][SyncPlatform]>) => {
+    setSettings({
+      ...settings,
+      platformSync: {
+        ...settings.platformSync,
+        [platform]: { ...settings.platformSync[platform], ...patch }
+      }
+    });
+  };
   return <div className="settings-workspace">
     <section className="settings-section"><div className="settings-heading"><h2>启动与后台</h2><p>{dataDirectory}</p></div>
       <label className="settings-field"><span>{t("settings.language")}</span><select value={settings.language} onChange={(event) => updateLanguage(event.target.value as Language)}><option value="zh-CN">{t("settings.language.zh")}</option><option value="en-US">{t("settings.language.en")}</option></select><small className="text-[10px] text-[var(--muted)]">{t("settings.languageHint")}</small></label>
       <label className="settings-toggle"><span><strong>登录时启动</strong><small>仅显示托盘，不打开窗口</small></span><input type="checkbox" checked={launchAtLogin} onChange={(event) => setLaunchAtLogin(event.target.checked)} /></label>
       <label className="settings-toggle"><span><strong>关闭到托盘</strong><small>销毁界面并保留轻量后台服务</small></span><input type="checkbox" checked={settings.closeToTray} onChange={(event) => update("closeToTray", event.target.checked)} /></label>
       <label className="settings-toggle"><span><strong>浏览器后台采集</strong><small>允许扩展按计划检查新对话</small></span><input type="checkbox" checked={settings.backgroundCapture} onChange={(event) => update("backgroundCapture", event.target.checked)} /></label>
+      <div className="platform-sync-settings">
+        <div className="settings-heading settings-heading-compact"><h3>平台同步策略</h3><p>独立控制频率和扫描预算，降低常驻资源占用</p></div>
+        {syncPlatforms.map(({ platform, name }) => {
+          const strategy = settings.platformSync[platform];
+          return <div className="platform-sync-row" key={platform}>
+            <label className="settings-toggle platform-sync-enabled"><span><strong>{name}</strong><small>{strategy.enabled ? `${strategy.intervalMinutes} 分钟检查一次` : "已暂停后台检查"}</small></span><input type="checkbox" checked={strategy.enabled} onChange={(event) => updatePlatformSync(platform, { enabled: event.target.checked })} /></label>
+            <label className="settings-field"><span>间隔</span><input type="number" min={60} max={1440} step={30} value={strategy.intervalMinutes} onChange={(event) => updatePlatformSync(platform, { intervalMinutes: Number(event.target.value) })} /></label>
+            <label className="settings-field"><span>条数</span><input type="number" min={20} max={100} step={5} value={strategy.scanLimit} onChange={(event) => updatePlatformSync(platform, { scanLimit: Number(event.target.value) })} /></label>
+            <label className="settings-field"><span>滚动</span><input type="number" min={5} max={80} step={5} value={strategy.maxScrolls} onChange={(event) => updatePlatformSync(platform, { maxScrolls: Number(event.target.value) })} /></label>
+            <label className="settings-field"><span>遇旧停止</span><input type="number" min={3} max={30} step={1} value={strategy.stopAfterKnown} onChange={(event) => updatePlatformSync(platform, { stopAfterKnown: Number(event.target.value) })} /></label>
+          </div>;
+        })}
+      </div>
       <label className="settings-toggle"><span><strong>后台知识处理</strong><small>空闲时生成摘要、标签和相似对话</small></span><input type="checkbox" checked={settings.knowledgeProcessing} onChange={(event) => update("knowledgeProcessing", event.target.checked)} /></label>
     </section>
 
