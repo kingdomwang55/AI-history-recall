@@ -171,15 +171,10 @@ npm run desktop:measure-idle -- --duration-ms 300000 --interval-ms 5000
 - Generic Markdown Adapter
 - Generic TXT Adapter
 - Generic HTML Adapter
-
-已预留结构：
-
-- ChatGPT Adapter
-- Claude Adapter
-- DeepSeek Adapter
-- 通义千问 Adapter
-
-后续可以把不同平台的官方导出格式适配逻辑放到 `src/import/adapters/` 中。
+- ChatGPT 官方导出 `conversations.json`
+- Claude 官方导出 `conversations.json`
+- DeepSeek 历史记录 JSON 导出
+- 通义千问/Qwen 历史记录 JSON 导出
 
 ## 浏览器采集
 
@@ -570,11 +565,7 @@ data/
 
 ## 后续 TODO
 
-- 支持 ChatGPT 官方导出 `conversations.json`
-- 支持 Claude 官方导出
-- 支持 DeepSeek 历史记录导出
 - 按项目聚类和问题资产分类
-- 通义千问官方导出格式解析
 - 平台页面结构变化后的 adapter/selector 维护与诊断工具
 - 对历史消息编辑、重新生成答案和分支对话做冲突感知合并；当前无稳定重叠时会保守跳过，避免污染原记录
 - 在 UI 中开放每个平台独立的同步周期与限速预设；当前只提供统一的后台暂停/恢复

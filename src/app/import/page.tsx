@@ -9,8 +9,7 @@ export default function ImportPage() {
         <div>
         <h1 className="page-title">导入历史对话</h1>
         <p className="page-description">
-          第一版优先支持通用 JSON、Markdown、TXT 和 HTML。ChatGPT、Claude、DeepSeek
-          的官方导出 adapter 已预留结构。
+          支持通用 JSON、Markdown、TXT、HTML，以及 ChatGPT、Claude、DeepSeek 和通义千问的官方 JSON 导出。
         </p>
         </div>
       </header>
