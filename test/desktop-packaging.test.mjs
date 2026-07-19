@@ -42,6 +42,7 @@ test("packaging script excludes development data and carries daemon native depen
   assert.match(script, /createRequire as __aihrCreateRequire/);
   assert.match(script, /const require = __aihrCreateRequire/);
   assert.match(script, /exposePnpmRuntimeDependencies/);
+  assert.match(script, /"@swc\/helpers"/);
   assert.match(script, /path\.join\(uiDir, "node_modules"\)/);
 });
 
